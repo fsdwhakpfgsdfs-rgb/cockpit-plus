@@ -11,6 +11,7 @@ interface GatewayStatusResp {
   timeoutSecs?: number;
   maxAttempts?: number;
   quotaCooldownSecs?: number;
+  proxy?: string | null;
   keys: { id: string; name: string; enabled: boolean; keyMasked: string }[];
   pool: {
     total: number;
@@ -77,7 +78,7 @@ export default function GatewayPage() {
   const [port, setPort] = useState(8787);
 
   const [cfgOpen, setCfgOpen] = useState(false);
-  const [cfgForm, setCfgForm] = useState({ port: 8787, strategy: 'round_robin', timeoutSecs: 180, maxAttempts: 3, sessionAffinity: true, quotaCooldownSecs: 300 });
+  const [cfgForm, setCfgForm] = useState({ port: 8787, strategy: 'round_robin', timeoutSecs: 180, maxAttempts: 3, sessionAffinity: true, quotaCooldownSecs: 300, proxy: '' });
 
   const [keyOpen, setKeyOpen] = useState(false);
   const [keyName, setKeyName] = useState('');
@@ -198,6 +199,7 @@ export default function GatewayPage() {
           timeout_secs: cfgForm.timeoutSecs,
           max_attempts: cfgForm.maxAttempts,
           quota_cooldown_secs: cfgForm.quotaCooldownSecs,
+          proxy: cfgForm.proxy.trim() ? cfgForm.proxy.trim() : null,
         }),
       });
       const j = await r.json();
@@ -357,6 +359,7 @@ export default function GatewayPage() {
                   maxAttempts: status.maxAttempts ?? 3,
                   sessionAffinity: status.sessionAffinity,
                   quotaCooldownSecs: status.quotaCooldownSecs ?? 300,
+                  proxy: status.proxy ?? '',
                 });
               }
               setCfgOpen(true);
@@ -640,6 +643,10 @@ export default function GatewayPage() {
             <label className="gw-field">
               <span>故障转移最大尝试次数</span>
               <input className="gw-input" type="number" value={cfgForm.maxAttempts} onChange={(e) => setCfgForm({ ...cfgForm, maxAttempts: Number(e.target.value) || 3 })} />
+            </label>
+            <label className="gw-field">
+              <span>出站代理（留空直连，例如 http://127.0.0.1:10808）</span>
+              <input className="gw-input" value={cfgForm.proxy} onChange={(e) => setCfgForm({ ...cfgForm, proxy: e.target.value })} placeholder="http://127.0.0.1:10808" />
             </label>
             <label className="gw-field">
               <span>额度耗尽冷却（秒）</span>

@@ -47,6 +47,9 @@ pub struct GatewayConfig {
     /// 手动添加的 OpenAI 兼容供应商（不依赖平台账号库）
     #[serde(default)]
     pub providers: Vec<ManualProvider>,
+    /// 出站代理，例如 http://127.0.0.1:10808；为空则直连
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<String>,
     /// 额度耗尽后的冷却秒数（期间不再被选中）
     #[serde(default = "def_cooldown")]
     pub quota_cooldown_secs: u64,
@@ -117,6 +120,7 @@ impl Default for GatewayConfig {
             timeout_secs: def_timeout(),
             max_attempts: def_max_attempts(),
             providers: Vec::new(),
+            proxy: None,
             quota_cooldown_secs: def_cooldown(),
         }
     }
@@ -844,21 +848,63 @@ async fn status(State(st): State<Arc<GatewayState>>) -> Response {
     .into_response()
 }
 
-/// 模型列表：内置常用 + 号池账号已配置的模型（修复：不再纯硬编码）
-async fn list_models() -> Response {
-    let builtin = [
-        "gpt-5", "gpt-5-codex", "gpt-4o", "o3", "o4-mini",
-        "claude-opus-4", "claude-sonnet-4", "claude-haiku-4",
-        "grok-4", "gemini-2.5-pro",
-    ];
-    let mut set: Vec<String> = builtin.iter().map(|s| s.to_string()).collect();
-    set.sort();
-    set.dedup();
+/// 腾讯系账号实际可用的模型目录（国内池 + 国际池）
+const TENCENT_MODELS_DOMESTIC: &[&str] = &[
+    "auto", "glm-5.4", "glm-5.3", "glm-5.3-flash", "glm-5.2",
+    "kimi-k3-1", "kimi-k2.8-preview", "deepseek-v4.1-flash", "deepseek-v4-pro",
+    "space-bunny", "step-5-preview", "mimo-v2.6-pro", "minimax-m3.1-flash",
+    "kimi-k3.1-pro", "hy4std", "hy4flash-free", "hy4flash",
+    "hunyuan-image-alpha", "hunyuan-image-alpha-edit",
+];
 
-    let data: Vec<Value> = set
-        .iter()
-        .map(|m| json!({ "id": m, "object": "model", "created": 0, "owned_by": "cockpit-pool" }))
-        .collect();
+const TENCENT_MODELS_INTL: &[&str] = &[
+    "max-model", "deepseek-v4.1-flash-sg",
+    "gpt-6.2-astra", "gpt-6-astra", "gpt-6.2-sol", "gpt-6.1-sol", "gpt-6-sol",
+    "gpt-6.1-terra", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+    "grok-4.7", "gemini-3.8-flash", "kimi-k3.1-pro-highspeed", "kimi-k3",
+    "hy-image-3.5",
+];
+
+/// 模型列表：反映号池账号真实可用的模型，而不是硬编码的通用名
+async fn list_models(State(st): State<Arc<GatewayState>>) -> Response {
+    let platforms: std::collections::HashSet<String> =
+        st.cached_pool().iter().map(|a| a.platform.clone()).collect();
+
+    let mut data: Vec<Value> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    let tencent = platforms.contains("codebuddy")
+        || platforms.contains("codebuddy_cn")
+        || platforms.contains("workbuddy");
+
+    if tencent || platforms.is_empty() {
+        for (list, owner) in [
+            (TENCENT_MODELS_DOMESTIC, "workbuddy"),
+            (TENCENT_MODELS_INTL, "workbuddy-intl"),
+        ] {
+            for m in list {
+                if seen.insert((*m).to_string()) {
+                    data.push(json!({ "id": m, "object": "model", "created": 0, "owned_by": owner }));
+                }
+            }
+        }
+    }
+
+    if platforms.contains("codex") {
+        for m in ["gpt-5", "gpt-5-codex", "o3", "o4-mini"] {
+            if seen.insert(m.to_string()) {
+                data.push(json!({ "id": m, "object": "model", "created": 0, "owned_by": "codex" }));
+            }
+        }
+    }
+    if platforms.contains("claude") {
+        for m in ["claude-opus-4", "claude-sonnet-4", "claude-haiku-4"] {
+            if seen.insert(m.to_string()) {
+                data.push(json!({ "id": m, "object": "model", "created": 0, "owned_by": "claude" }));
+            }
+        }
+    }
+
     Json(json!({ "object": "list", "data": data })).into_response()
 }
 
@@ -943,9 +989,16 @@ async fn proxy_request(
             None => format!("{}{}", plat_base.trim_end_matches('/'), plat_path),
         };
 
-        let client = match reqwest::Client::builder()
-            .timeout(Duration::from_secs(cfg.timeout_secs))
-            .build()
+        let mut cbuild = reqwest::Client::builder()
+            .timeout(Duration::from_secs(cfg.timeout_secs));
+        if let Some(proxy) = cfg.proxy.as_deref() {
+            if !proxy.trim().is_empty() {
+                if let Ok(px) = reqwest::Proxy::all(proxy.trim()) {
+                    cbuild = cbuild.proxy(px);
+                }
+            }
+        }
+        let client = match cbuild.build()
         {
             Ok(c) => c,
             Err(e) => {
@@ -1419,7 +1472,7 @@ async fn delete_provider(State(st): State<Arc<GatewayState>>, Path(id): Path<Str
 }
 
 /// 连通性测试：打 {base_url}/models
-async fn test_provider(Json(p): Json<ManualProvider>) -> Response {
+async fn test_provider(State(st): State<Arc<GatewayState>>, Json(p): Json<ManualProvider>) -> Response {
     if p.base_url.trim().is_empty() {
         return json_err(StatusCode::BAD_REQUEST, "base_url 不能为空");
     }
@@ -1430,9 +1483,16 @@ async fn test_provider(Json(p): Json<ManualProvider>) -> Response {
         format!("{base}/v1/models")
     };
     let started = Instant::now();
-    let client = match reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .build()
+    let st = &st;
+    let mut cbuild = reqwest::Client::builder().timeout(Duration::from_secs(15));
+    if let Some(proxy) = st.config.lock().unwrap().proxy.clone() {
+        if !proxy.trim().is_empty() {
+            if let Ok(px) = reqwest::Proxy::all(proxy.trim()) {
+                cbuild = cbuild.proxy(px);
+            }
+        }
+    }
+    let client = match cbuild.build()
     {
         Ok(c) => c,
         Err(e) => return json_err(StatusCode::INTERNAL_SERVER_ERROR, &format!("client: {e}")),

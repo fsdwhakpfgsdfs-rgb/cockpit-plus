@@ -73,3 +73,4 @@ cockpit-tools.exe
 _v10/
 _v11/
 _v12/
+tsc*.log
