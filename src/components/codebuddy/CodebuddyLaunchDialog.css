@@ -1,0 +1,7 @@
+.codebuddy-launch-modes > button {
+  flex: 1 1 0;
+}
+
+.codebuddy-launch-cli-fields {
+  margin-top: 14px;
+}

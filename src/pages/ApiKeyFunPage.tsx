@@ -1,0 +1,1024 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { isTauri } from '@tauri-apps/api/core';
+import { save } from '@tauri-apps/plugin-dialog';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { useTranslation } from 'react-i18next';
+import {
+  BookmarkPlus,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Play,
+  Trash2,
+  Copy,
+  Pencil,
+  X,
+} from 'lucide-react';
+import {
+  listModelProviderModels,
+  queryModelProviderUsage,
+  type ModelProviderModel,
+  type ModelProviderUsageSummary,
+} from '../services/modelProviderUsageService';
+import {
+  APIKEY_FUN_GLOBAL_ENDPOINT,
+  APIKEY_FUN_SOURCE_TAG,
+  buildApiKeyFunProviderBaseUrl,
+} from '../utils/apikeyFunLinks';
+import {
+  dispatchApiKeyFunPrefillEvent,
+  getApiKeyFunPrefillPage,
+  type ApiKeyFunPrefillTarget,
+} from '../utils/apiKeyFunPrefill';
+import { resolveApiKeyFunGrokModel } from '../utils/apikeyFunClientConfigs';
+import { ApiKeyFunKeyConfigModal } from '../components/apiKeyFun/ApiKeyFunKeyConfigModal';
+import { ApiKeyFunPromotionHeader } from '../components/apiKeyFun/ApiKeyFunPromotionHeader';
+import { ModalErrorMessage, useModalErrorState } from '../components/ModalErrorMessage';
+import { useSponsorStore } from '../stores/useSponsorStore';
+import {
+  exportLegacyApiKeyFunVault,
+  initializeApiKeyFunVault,
+  requiresApiKeyFunRecovery,
+  restoreApiKeyFunVault,
+  subscribeApiKeyFunVault,
+  updateApiKeyFunVault,
+  type ManagedApiKey,
+} from '../services/apiKeyFunVault';
+import './ApiKeyFunPage.css';
+
+const APIKEY_FUN_AUTO_QUERY_DELAY_MS = 650;
+
+function maskKey(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (trimmed.length <= 10) return `${trimmed.slice(0, 3)}****`;
+  return `${trimmed.slice(0, 6)}****${trimmed.slice(-4)}`;
+}
+
+function formatNumber(value?: number | null, suffix = ''): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '--';
+  const formatted = new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: value >= 100 ? 0 : 4,
+  }).format(value);
+  return suffix ? `${formatted} ${suffix}` : formatted;
+}
+
+function usagePrimaryValue(summary: ModelProviderUsageSummary | null): string {
+  if (!summary) return '--';
+  const unit = summary.unit ?? '';
+  if (summary.quotaUnlimited) return 'Unlimited';
+  if (typeof summary.remaining === 'number') return formatNumber(summary.remaining, unit);
+  if (typeof summary.quotaRemaining === 'number') return formatNumber(summary.quotaRemaining, unit);
+  if (typeof summary.balance === 'number') return formatNumber(summary.balance, unit);
+  return '--';
+}
+
+function usageValidityTone(summary: ModelProviderUsageSummary | null): 'ok' | 'bad' | 'unknown' {
+  if (!summary || typeof summary.isValid !== 'boolean') return 'unknown';
+  return summary.isValid ? 'ok' : 'bad';
+}
+
+function providerErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error ?? 'UNKNOWN_ERROR');
+}
+
+function buildManagedKeyName(key: string): string {
+  return maskKey(key);
+}
+
+function formatManagedKeyTime(timestamp: number): string {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return '--';
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(timestamp));
+}
+
+function normalizeModelCatalog(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const models: string[] = [];
+  values.forEach((value) => {
+    const model = value.trim();
+    const key = model.toLowerCase();
+    if (!model || seen.has(key)) return;
+    seen.add(key);
+    models.push(model);
+  });
+  return models;
+}
+
+function isClaudeModelId(value: string): boolean {
+  const model = value.trim().toLowerCase();
+  return model.startsWith('claude-') || model.startsWith('anthropic/claude-');
+}
+
+export function ApiKeyFunPage() {
+  const { t } = useTranslation();
+  const sponsorModule = useSponsorStore((state) => state.state.sponsorModule);
+  const [apiKey, setApiKey] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [usage, setUsage] = useState<ModelProviderUsageSummary | null>(null);
+  const [usageError, setUsageError] = useState<string | null>(null);
+  const [queryingUsage, setQueryingUsage] = useState(false);
+  const [apiKeyModels, setApiKeyModels] = useState<ModelProviderModel[]>([]);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [queryingModels, setQueryingModels] = useState(false);
+  const [saveFlash, setSaveFlash] = useState(false);
+  const [managedKeys, setManagedKeys] = useState<ManagedApiKey[]>([]);
+  const [vaultLoading, setVaultLoading] = useState(true);
+  const [vaultLoadFailed, setVaultLoadFailed] = useState(false);
+  const [vaultNeedsRecovery, setVaultNeedsRecovery] = useState(false);
+  const [vaultRestoreFailed, setVaultRestoreFailed] = useState(false);
+  const [vaultExporting, setVaultExporting] = useState(false);
+  const [vaultExportFailed, setVaultExportFailed] = useState(false);
+  const [vaultWriteFailed, setVaultWriteFailed] = useState(false);
+  const [keyActionState, setKeyActionState] = useState<Record<string, {
+    target: ApiKeyFunPrefillTarget;
+    status: 'success' | 'error';
+    message?: string;
+  }>>({});
+  const initialManagedKeySelectedRef = useRef(false);
+
+  // 别名编辑状态
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editNameValue, setEditNameValue] = useState('');
+
+  // 复制状态
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [configKey, setConfigKey] = useState<ManagedApiKey | null>(null);
+  const [configModels, setConfigModels] = useState<string[]>([]);
+  const [configModelsLoading, setConfigModelsLoading] = useState(false);
+  const [pendingDeleteKey, setPendingDeleteKey] = useState<ManagedApiKey | null>(null);
+  const [deletingKey, setDeletingKey] = useState(false);
+  const deletingKeyRef = useRef(false);
+  const deleteError = useModalErrorState();
+
+  const sponsorIntegration = useMemo(
+    () => sponsorModule?.sponsors.find((item) => item.id === 'apikey-fun')?.integration ?? null,
+    [sponsorModule],
+  );
+  const providerBaseUrl = useMemo(() => {
+    const remoteBaseUrl = sponsorIntegration?.enabled
+      ? sponsorIntegration.baseUrl?.trim()
+      : '';
+    return remoteBaseUrl || buildApiKeyFunProviderBaseUrl(APIKEY_FUN_GLOBAL_ENDPOINT);
+  }, [sponsorIntegration]);
+  const claudeBaseUrl = useMemo(
+    () => providerBaseUrl.replace(/\/+$/, '').replace(/\/v1$/i, ''),
+    [providerBaseUrl],
+  );
+  const maskedApiKey = useMemo(() => maskKey(apiKey), [apiKey]);
+  const currentKey = apiKey.trim();
+  const currentSavedKey = useMemo(
+    () => managedKeys.find((item) => item.key === currentKey),
+    [currentKey, managedKeys],
+  );
+  const apiKeyFunModelCatalog = useMemo(
+    () => normalizeModelCatalog(apiKeyModels.map((model) => model.id)),
+    [apiKeyModels],
+  );
+  const modelCatalogText = useMemo(
+    () => apiKeyFunModelCatalog.join('\n').toLowerCase(),
+    [apiKeyFunModelCatalog],
+  );
+  const canAddCurrentKeyToCodex = modelCatalogText.includes('gpt');
+  const canAddCurrentKeyToClaude = apiKeyFunModelCatalog.some(isClaudeModelId);
+  const canAddCurrentKeyToGrok = Boolean(resolveApiKeyFunGrokModel(apiKeyFunModelCatalog));
+  const canShowTargetActions = canAddCurrentKeyToCodex || canAddCurrentKeyToClaude || canAddCurrentKeyToGrok;
+  const canPrefillCurrentKey =
+    Boolean(currentSavedKey) && !queryingModels && apiKeyFunModelCatalog.length > 0;
+
+  const loadSavedKeys = useCallback(async () => {
+    setVaultLoading(true);
+    setVaultLoadFailed(false);
+    setVaultNeedsRecovery(false);
+    setVaultRestoreFailed(false);
+    try {
+      await initializeApiKeyFunVault();
+    } catch (error) {
+      if (requiresApiKeyFunRecovery(error)) setVaultNeedsRecovery(true);
+      else setVaultLoadFailed(true);
+    } finally {
+      setVaultLoading(false);
+    }
+  }, []);
+
+  const restoreSavedKeys = async () => {
+    setVaultLoading(true);
+    setVaultRestoreFailed(false);
+    try {
+      await restoreApiKeyFunVault();
+      setVaultNeedsRecovery(false);
+      setVaultLoadFailed(false);
+      setVaultWriteFailed(false);
+    } catch (error) {
+      if (String(error).includes('apikey_fun_vault_already_exists')) await loadSavedKeys();
+      else setVaultRestoreFailed(true);
+    } finally {
+      setVaultLoading(false);
+    }
+  };
+
+  const exportSavedKeys = async () => {
+    setVaultExporting(true);
+    setVaultExportFailed(false);
+    try {
+      const path = await save({
+        defaultPath: 'apikey_fun_legacy_keys.json',
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+      if (path) await exportLegacyApiKeyFunVault(path);
+    } catch {
+      setVaultExportFailed(true);
+    } finally {
+      setVaultExporting(false);
+    }
+  };
+
+  useEffect(() => {
+    const unsubscribe = subscribeApiKeyFunVault(setManagedKeys);
+    void loadSavedKeys();
+    return unsubscribe;
+  }, [loadSavedKeys]);
+
+  useEffect(() => {
+    if (initialManagedKeySelectedRef.current) return;
+    if (apiKey.trim()) {
+      initialManagedKeySelectedRef.current = true;
+      return;
+    }
+    const firstKey = managedKeys[0]?.key.trim();
+    if (firstKey) {
+      initialManagedKeySelectedRef.current = true;
+      setApiKey(firstKey);
+    }
+  }, [apiKey, managedKeys]);
+
+  const changeSavedKeys = useCallback(async (
+    update: (keys: ManagedApiKey[]) => ManagedApiKey[],
+    reportFailure?: (needsRecovery: boolean) => void,
+  ) => {
+    setVaultWriteFailed(false);
+    try {
+      await updateApiKeyFunVault(update);
+      setVaultLoadFailed(false);
+      return true;
+    } catch (error) {
+      const needsRecovery = requiresApiKeyFunRecovery(error);
+      if (needsRecovery) setVaultNeedsRecovery(true);
+      if (reportFailure) reportFailure(needsRecovery);
+      else if (!needsRecovery) setVaultWriteFailed(true);
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!saveFlash) return undefined;
+    const timer = window.setTimeout(() => setSaveFlash(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [saveFlash]);
+
+  const openExternal = useCallback((url: string) => {
+    try {
+      void openUrl(url).catch(() => {
+        window.location.href = url;
+      });
+    } catch {
+      window.location.href = url;
+    }
+  }, []);
+
+  // 自动额度查询
+  useEffect(() => {
+    const key = apiKey.trim();
+    if (!key) {
+      setUsage(null);
+      setUsageError(null);
+      setQueryingUsage(false);
+      setApiKeyModels([]);
+      setModelsError(null);
+      setQueryingModels(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    setUsageError(null);
+    setModelsError(null);
+    setApiKeyModels([]);
+    setQueryingUsage(true);
+    setQueryingModels(true);
+
+    const timer = window.setTimeout(() => {
+      void queryModelProviderUsage({
+        baseUrl: providerBaseUrl,
+        apiKey: key,
+        integrationType: 'sub2api',
+      })
+        .then((nextUsage) => {
+          if (cancelled) return;
+          const nextStatus = usageValidityTone(nextUsage);
+          const nextRemaining = usagePrimaryValue(nextUsage);
+          setUsage(nextUsage);
+          void changeSavedKeys((items) => items.map((item) => (
+            item.key === key
+              ? {
+                  ...item,
+                  lastUsedAt: Date.now(),
+                  lastStatus: nextStatus,
+                  lastRemaining: nextRemaining,
+                }
+              : item
+          )));
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          setUsage(null);
+          setUsageError(
+            t('apiKeyFun.error.queryFailed', {
+              defaultValue: '额度查询失败：{{error}}',
+              error: providerErrorMessage(error),
+            }),
+          );
+          void changeSavedKeys((items) => items.map((item) => (
+            item.key === key
+              ? {
+                  ...item,
+                  lastUsedAt: Date.now(),
+                  lastStatus: 'bad',
+                  lastRemaining: '--',
+                }
+              : item
+          )));
+        })
+        .finally(() => {
+          if (!cancelled) setQueryingUsage(false);
+        });
+      void listModelProviderModels({
+        baseUrl: providerBaseUrl,
+        apiKey: key,
+      })
+        .then((result) => {
+          if (cancelled) return;
+          setApiKeyModels(result.models);
+          setModelsError(
+            result.models.length === 0
+              ? t('apiKeyFun.models.emptyFromKey', '当前 API Key 未返回模型列表。')
+              : null,
+          );
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          setApiKeyModels([]);
+          setModelsError(
+            t('apiKeyFun.models.queryFailed', {
+              defaultValue: '模型列表读取失败：{{error}}',
+              error: providerErrorMessage(error),
+            }),
+          );
+        })
+        .finally(() => {
+          if (!cancelled) setQueryingModels(false);
+        });
+    }, APIKEY_FUN_AUTO_QUERY_DELAY_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [apiKey, changeSavedKeys, providerBaseUrl, t]);
+
+  // 保存密钥
+  const handleSaveCurrentKey = useCallback(async () => {
+    const key = apiKey.trim();
+    if (!key) {
+      setUsageError(t('apiKeyFun.error.missingApiKey', '请输入 API Key。'));
+      return;
+    }
+    const now = Date.now();
+    const nextStatus = usageValidityTone(usage);
+    const nextRemaining = usagePrimaryValue(usage);
+    const saved = await changeSavedKeys((items) => {
+      const existing = items.find((item) => item.key === key);
+      if (existing) {
+        return items.map((item) => (
+          item.key === key
+            ? {
+                ...item,
+                name: buildManagedKeyName(key),
+                lastUsedAt: now,
+                lastStatus: nextStatus,
+                lastRemaining: nextRemaining,
+              }
+            : item
+        ));
+      }
+      return [
+        {
+          id: `${now}-${Math.random().toString(36).slice(2, 8)}`,
+          key,
+          name: buildManagedKeyName(key),
+          createdAt: now,
+          lastUsedAt: now,
+          lastStatus: nextStatus,
+          lastRemaining: nextRemaining,
+        },
+        ...items,
+      ];
+    });
+    if (!saved) return;
+    setUsageError(null);
+    setSaveFlash(true);
+  }, [apiKey, changeSavedKeys, t, usage]);
+
+  const setManagedKeyAction = useCallback((
+    id: string,
+    state: { target: ApiKeyFunPrefillTarget; status: 'success' | 'error'; message?: string },
+  ) => {
+    setKeyActionState((items) => ({ ...items, [id]: state }));
+  }, []);
+
+  const handlePrefillTarget = useCallback((
+    target: ApiKeyFunPrefillTarget,
+    item: ManagedApiKey,
+  ) => {
+    const key = item.key.trim();
+    if (!key) {
+      setManagedKeyAction(item.id, {
+        target,
+        status: 'error',
+        message: t('apiKeyFun.error.missingApiKey', '请输入 API Key。'),
+      });
+      return;
+    }
+    const page = getApiKeyFunPrefillPage(target);
+    const targetName = target === 'codex'
+      ? 'Codex'
+      : target === 'claude_desktop'
+        ? 'Claude'
+        : target === 'grok' ? 'Grok CLI' : 'Claude CLI';
+    window.dispatchEvent(new CustomEvent<typeof page>('app-request-navigate', { detail: page }));
+    window.setTimeout(() => {
+      dispatchApiKeyFunPrefillEvent({
+        target,
+        apiKey: key,
+        apiKeyName: item.name || buildManagedKeyName(key),
+        providerName: 'APIKEY.FUN',
+        baseUrl: target === 'codex' || target === 'grok' ? providerBaseUrl : claudeBaseUrl,
+        sourceTag: APIKEY_FUN_SOURCE_TAG,
+        modelCatalog: apiKeyFunModelCatalog,
+      });
+    }, 0);
+    setManagedKeyAction(item.id, {
+      target,
+      status: 'success',
+      message: t('apiKeyFun.keyManager.prefillOpened', {
+        defaultValue: '已打开 {{target}} 添加弹窗，请确认保存',
+        target: targetName,
+      }),
+    });
+  }, [apiKeyFunModelCatalog, claudeBaseUrl, providerBaseUrl, setManagedKeyAction, t]);
+
+  /** 「使用密钥」：按这把 Key 真实返回的模型渲染配置弹窗（只读 + 复制）。 */
+  const handleOpenKeyConfig = useCallback(async (item: ManagedApiKey) => {
+    setConfigKey(item);
+    setConfigModels([]);
+    setConfigModelsLoading(true);
+    try {
+      const { models } = await listModelProviderModels({
+        baseUrl: providerBaseUrl,
+        apiKey: item.key,
+      });
+      setConfigModels([...new Set(models.map((model) => model.id.trim()).filter(Boolean))]);
+    } catch {
+      setConfigModels([]);
+    } finally {
+      setConfigModelsLoading(false);
+    }
+  }, [providerBaseUrl]);
+
+  // 切换密钥
+  const handleUseManagedKey = useCallback((item: ManagedApiKey) => {
+    setApiKey(item.key);
+    setUsageError(null);
+    void changeSavedKeys((items) => items.map((nextItem) => (
+      nextItem.id === item.id ? { ...nextItem, lastUsedAt: Date.now() } : nextItem
+    )));
+  }, [changeSavedKeys]);
+
+  const closeDeleteKeyDialog = () => {
+    if (deletingKeyRef.current) return;
+    deleteError.clear();
+    setPendingDeleteKey(null);
+  };
+
+  const handleDeleteManagedKey = async () => {
+    if (!pendingDeleteKey || deletingKeyRef.current) return;
+    const targetId = pendingDeleteKey.id;
+    deletingKeyRef.current = true;
+    setDeletingKey(true);
+    deleteError.clear();
+    try {
+      const saved = await changeSavedKeys(
+        (items) => items.filter((item) => item.id !== targetId),
+        (needsRecovery) => deleteError.report(t(needsRecovery
+          ? 'apiKeyFun.keyManager.checkpointAvailable'
+          : 'apiKeyFun.keyManager.vaultWriteFailed')),
+      );
+      if (saved) setPendingDeleteKey(null);
+    } finally {
+      deletingKeyRef.current = false;
+      setDeletingKey(false);
+    }
+  };
+
+  // 行内重命名密钥管理
+  const handleStartRename = useCallback((item: ManagedApiKey, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(item.id);
+    setEditNameValue(item.name);
+  }, []);
+
+  const handleSaveRename = useCallback(async (id: string, e?: React.FormEvent) => {
+    e?.preventDefault();
+    const trimmed = editNameValue.trim();
+    if (!trimmed) return;
+    const saved = await changeSavedKeys((items) => items.map((item) => (
+      item.id === id && item.name !== trimmed ? { ...item, name: trimmed } : item
+    )));
+    if (saved) setEditingId(current => current === id ? null : current);
+  }, [changeSavedKeys, editNameValue]);
+
+  const handleCancelRename = useCallback(() => {
+    setEditingId(null);
+  }, []);
+
+  // 复制剪贴板逻辑
+  const handleCopyToClipboard = useCallback((text: string, id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!text) return;
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        setCopiedId(id);
+        setTimeout(() => setCopiedId(null), 2000);
+      })
+      .catch(() => {
+        try {
+          const textarea = document.createElement('textarea');
+          textarea.value = text;
+          textarea.style.position = 'fixed';
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+          setCopiedId(id);
+          setTimeout(() => setCopiedId(null), 2000);
+        } catch (err) {
+          console.error('Failed to copy key', err);
+        }
+      });
+  }, []);
+
+  return (
+    <div className="apikey-fun-page">
+      <ApiKeyFunPromotionHeader onOpen={openExternal} />
+
+      <div className="apikey-fun-dashboard-grid">
+        <main className="apikey-fun-main-col">
+          <section className="apikey-fun-dashboard-panel apikey-fun-config-panel">
+            <div className="apikey-fun-panel-head">
+              <div>
+                <h2>{t('apiKeyFun.queryTitle', '密钥额度查询')}</h2>
+              </div>
+              <div className="apikey-fun-key-preview">
+                <KeyRound size={14} />
+                <span>{maskedApiKey || t('apiKeyFun.keyNotSet', '未输入秘钥')}</span>
+              </div>
+            </div>
+
+            <div className="apikey-fun-form-grid apikey-fun-form-grid-single">
+              <label className="apikey-fun-field apikey-fun-field-wide">
+                <span>{t('apiKeyFun.apiKeyLabel', 'API Key')}</span>
+                <div className="apikey-fun-secret-input">
+                  <input
+                    value={apiKey}
+                    type={showApiKey ? 'text' : 'password'}
+                    placeholder={t('apiKeyFun.apiKeyPlaceholder', '粘贴 APIKEY.FUN 控制台创建的 API Key')}
+                    onChange={(event) => {
+                      setApiKey(event.target.value);
+                      setUsageError(null);
+                    }}
+                  />
+                  {apiKey && (
+                    <button
+                      type="button"
+                      className="apikey-fun-icon-button copy-btn"
+                      onClick={(e) => handleCopyToClipboard(apiKey, 'input', e)}
+                      title={t('apiKeyFun.copyKey', '复制密钥')}
+                    >
+                      {copiedId === 'input' ? <CheckCircle2 size={16} className="success-icon" /> : <Copy size={16} />}
+                    </button>
+                  )}
+                  {apiKey && (
+                    <button
+                      type="button"
+                      className="apikey-fun-icon-button clear-btn"
+                      onClick={() => {
+                      setApiKey('');
+                      setUsageError(null);
+                      setUsage(null);
+                      setApiKeyModels([]);
+                      setModelsError(null);
+                      setQueryingModels(false);
+                    }}
+                    title={t('apiKeyFun.clearKey', '清空输入')}
+                  >
+                      <X size={16} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="apikey-fun-icon-button"
+                    onClick={() => setShowApiKey((value) => !value)}
+                    title={showApiKey ? t('apiKeyFun.hideKey', '隐藏') : t('apiKeyFun.showKey', '显示')}
+                  >
+                    {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </label>
+            </div>
+
+            <div className="apikey-fun-action-row apikey-fun-key-actions">
+              <div className="apikey-fun-primary-actions">
+                <button className="btn apikey-fun-save-btn" disabled={!currentKey} onClick={handleSaveCurrentKey}>
+                  {currentSavedKey ? <CheckCircle2 size={16} /> : <BookmarkPlus size={16} />}
+                  <span>
+                    {currentSavedKey
+                      ? t('apiKeyFun.keyManager.savedButton', '已保存')
+                      : t('apiKeyFun.keyManager.saveButton', '保存密钥')}
+                  </span>
+                </button>
+                {saveFlash && (
+                  <span className="apikey-fun-save-flash">
+                    {t('apiKeyFun.keyManager.saveFlash', '刚刚保存')}
+                  </span>
+                )}
+              </div>
+              {canShowTargetActions && (
+                <div className="apikey-fun-target-actions">
+                  {canAddCurrentKeyToGrok && (
+                    <button
+                      type="button"
+                      className="btn apikey-fun-target-btn"
+                      disabled={!canPrefillCurrentKey}
+                      onClick={() => {
+                        if (currentSavedKey) handlePrefillTarget('grok', currentSavedKey);
+                      }}
+                    >
+                      <span>{t('apiKeyFun.keyManager.addToGrok', 'Add to Grok')}</span>
+                    </button>
+                  )}
+                  {canAddCurrentKeyToCodex && (
+                    <button
+                      type="button"
+                      className="btn apikey-fun-target-btn"
+                      disabled={!canPrefillCurrentKey}
+                      onClick={() => {
+                        if (currentSavedKey) handlePrefillTarget('codex', currentSavedKey);
+                      }}
+                    >
+                      <span>{t('apiKeyFun.keyManager.addToCodex', '添加到 Codex')}</span>
+                    </button>
+                  )}
+                  {canAddCurrentKeyToClaude && (
+                    <button
+                      type="button"
+                      className="btn apikey-fun-target-btn"
+                      disabled={!canPrefillCurrentKey}
+                      onClick={() => {
+                        if (currentSavedKey) handlePrefillTarget('claude_desktop', currentSavedKey);
+                      }}
+                    >
+                      <span>{t('apiKeyFun.keyManager.addToClaudeDesktop', '添加到 Claude')}</span>
+                    </button>
+                  )}
+                  {canAddCurrentKeyToClaude && (
+                    <button
+                      type="button"
+                      className="btn apikey-fun-target-btn"
+                      disabled={!canPrefillCurrentKey}
+                      onClick={() => {
+                        if (currentSavedKey) handlePrefillTarget('claude_cli', currentSavedKey);
+                      }}
+                    >
+                      <span>{t('apiKeyFun.keyManager.addToClaudeCli', '添加到 Claude CLI')}</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {usageError && (
+              <div className="apikey-fun-message error">
+                {usageError}
+              </div>
+            )}
+          </section>
+
+          {/* 数值卡片展示 */}
+          <div className="apikey-fun-usage-grid">
+            <div className={`apikey-fun-usage-card primary ${queryingUsage ? 'loading' : ''}`}>
+              <span>{t('apiKeyFun.usage.remaining', '剩余额度')}</span>
+              {queryingUsage ? (
+                <div className="apikey-fun-skeleton-text" />
+              ) : (
+                <strong>{usagePrimaryValue(usage)}</strong>
+              )}
+            </div>
+            <div className={`apikey-fun-usage-card ${queryingUsage ? 'loading' : ''}`}>
+              <span>{t('apiKeyFun.usage.used', '已用额度')}</span>
+              {queryingUsage ? (
+                <div className="apikey-fun-skeleton-text" />
+              ) : (
+                <strong>{formatNumber(usage?.quotaUsed ?? usage?.totalCost, usage?.unit ?? '')}</strong>
+              )}
+            </div>
+            <div className={`apikey-fun-usage-card ${queryingUsage ? 'loading' : ''}`}>
+              <span>{t('apiKeyFun.usage.todayRequests', '今日请求')}</span>
+              {queryingUsage ? (
+                <div className="apikey-fun-skeleton-text" />
+              ) : (
+                <strong>{formatNumber(usage?.todayRequests)}</strong>
+              )}
+            </div>
+            <div className={`apikey-fun-usage-card ${queryingUsage ? 'loading' : ''}`}>
+              <span>{t('apiKeyFun.usage.todayTokens', '今日 Token')}</span>
+              {queryingUsage ? (
+                <div className="apikey-fun-skeleton-text" />
+              ) : (
+                <strong>{formatNumber(usage?.todayTotalTokens)}</strong>
+              )}
+            </div>
+            <div className={`apikey-fun-usage-card ${queryingUsage ? 'loading' : ''}`}>
+              <span>{t('apiKeyFun.usage.totalRequests', '总请求')}</span>
+              {queryingUsage ? (
+                <div className="apikey-fun-skeleton-text" />
+              ) : (
+                <strong>{formatNumber(usage?.totalRequests)}</strong>
+              )}
+            </div>
+            <div className={`apikey-fun-usage-card ${queryingUsage ? 'loading' : ''}`}>
+              <span>{t('apiKeyFun.usage.totalTokens', '总 Token')}</span>
+              {queryingUsage ? (
+                <div className="apikey-fun-skeleton-text" />
+              ) : (
+                <strong>{formatNumber(usage?.totalTotalTokens)}</strong>
+              )}
+            </div>
+          </div>
+
+          <section className="apikey-fun-dashboard-panel apikey-fun-models-panel">
+            <div className="apikey-fun-panel-head">
+              <div>
+                <h2>{t('apiKeyFun.models.title', '可用模型')}</h2>
+              </div>
+              <div className="apikey-fun-model-count">
+                {queryingModels
+                  ? t('apiKeyFun.models.loading', '读取中')
+                  : t('apiKeyFun.models.count', {
+                      defaultValue: '{{count}} 个模型',
+                      count: apiKeyFunModelCatalog.length,
+                    })}
+              </div>
+            </div>
+            {queryingModels ? (
+              <div className="apikey-fun-model-empty">
+                {t('apiKeyFun.models.loadingDesc', '正在从当前 API Key 读取模型列表...')}
+              </div>
+            ) : modelsError ? (
+              <div className="apikey-fun-model-empty">
+                {modelsError}
+              </div>
+            ) : apiKeyFunModelCatalog.length === 0 ? (
+              <div className="apikey-fun-model-empty">
+                {currentKey
+                  ? t('apiKeyFun.models.emptyFromKey', '当前 API Key 未返回模型列表。')
+                  : t('apiKeyFun.models.empty', '输入 API Key 后读取可用模型。')}
+              </div>
+            ) : (
+              <div className="apikey-fun-model-list">
+                {apiKeyFunModelCatalog.map((model) => (
+                  <span className="apikey-fun-model-chip" key={model}>{model}</span>
+                ))}
+              </div>
+            )}
+          </section>
+        </main>
+
+        <aside className="apikey-fun-sidebar-col">
+          <section className="apikey-fun-dashboard-panel apikey-fun-manager-panel">
+            <div className="apikey-fun-panel-head">
+              <div>
+                <h2>{t('apiKeyFun.keyManager.title', '密钥管理')}</h2>
+                <p>{t('apiKeyFun.keyManager.desc', '保存常用 API Key，点击即可切换并自动查询额度。')}</p>
+              </div>
+            </div>
+            {isTauri() && !vaultLoadFailed && !vaultNeedsRecovery && (
+              <div>
+                <button type="button" className="btn btn-secondary btn-sm"
+                  disabled={vaultLoading || vaultExporting} onClick={exportSavedKeys}>
+                  {t(vaultExporting ? 'common.loading' : 'apiKeyFun.keyManager.exportLegacy')}
+                </button>
+              </div>
+            )}
+            {vaultLoadFailed && (
+              <div className="apikey-fun-empty-keys" role="alert">
+                <span>{t('apiKeyFun.keyManager.vaultLoadFailed')}</span>
+                <button className="btn btn-secondary btn-sm" onClick={() => void loadSavedKeys()}>
+                  {t('common.retry')}
+                </button>
+              </div>
+            )}
+            {vaultNeedsRecovery && !pendingDeleteKey && (
+              <div className="apikey-fun-empty-keys" role="alert">
+                <span>{t('apiKeyFun.keyManager.checkpointAvailable')}</span>
+                <button type="button" className="btn btn-secondary btn-sm" disabled={vaultLoading} onClick={restoreSavedKeys}>
+                  {t('apiKeyFun.keyManager.restoreCheckpoint')}
+                </button>
+              </div>
+            )}
+            {vaultRestoreFailed && <p role="alert">{t('apiKeyFun.keyManager.checkpointRestoreFailed')}</p>}
+            {vaultExportFailed && <p role="alert">{t('apiKeyFun.keyManager.legacyExportFailed')}</p>}
+            {vaultWriteFailed && <p role="alert">{t('apiKeyFun.keyManager.vaultWriteFailed')}</p>}
+            {vaultLoading && <p role="status">{t('common.loading')}</p>}
+            {managedKeys.length === 0 ? !vaultLoading && !vaultLoadFailed && !vaultNeedsRecovery && (
+              <div className="apikey-fun-empty-keys">
+                <KeyRound size={16} />
+                <span>{t('apiKeyFun.keyManager.empty', '暂无保存的密钥。')}</span>
+              </div>
+            ) : (
+              <div className="apikey-fun-key-list">
+                {managedKeys.map((item) => {
+                  const isEditing = editingId === item.id;
+                  const actionState = keyActionState[item.id];
+                  return (
+                    <div className={`apikey-fun-key-item ${item.key === currentKey ? 'active' : ''} ${isEditing ? 'editing' : ''}`} key={item.id}>
+                      {isEditing ? (
+                        <form className="apikey-fun-rename-form" onSubmit={(e) => handleSaveRename(item.id, e)}>
+                          <input
+                            ref={(el) => el?.focus()}
+                            className="apikey-fun-rename-input"
+                            value={editNameValue}
+                            placeholder={t('apiKeyFun.keyManager.renamePlaceholder', '输入新别名...')}
+                            onChange={(e) => setEditNameValue(e.target.value)}
+                            onBlur={() => handleSaveRename(item.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') handleCancelRename();
+                            }}
+                          />
+                        </form>
+                      ) : (
+                        <button className="apikey-fun-key-select" onClick={() => handleUseManagedKey(item)}>
+                          <span className="apikey-fun-key-name-row">
+                            <span className="name-text">{item.name}</span>
+                            <span
+                              className="edit-icon-btn"
+                              title={t('apiKeyFun.keyManager.editAlias', '修改别名')}
+                              onClick={(e) => handleStartRename(item, e)}
+                            >
+                              <Pencil size={12} />
+                            </span>
+                          </span>
+                          <span className="apikey-fun-key-meta">
+                            <small>
+                              {item.lastRemaining
+                                ? t('apiKeyFun.keyManager.lastRemaining', {
+                                    defaultValue: '上次余额 {{value}}',
+                                    value: item.lastRemaining,
+                                  })
+                                : t('apiKeyFun.keyManager.notQueried', '未查询')}
+                            </small>
+                            <small>
+                              {t('apiKeyFun.keyManager.createdAt', {
+                                defaultValue: '添加于 {{time}}',
+                                time: formatManagedKeyTime(item.createdAt),
+                              })}
+                            </small>
+                            {actionState?.message && (
+                              <small className={`apikey-fun-key-action-state ${actionState.status}`}>
+                                {actionState.message}
+                              </small>
+                            )}
+                          </span>
+                        </button>
+                      )}
+                      
+                      <div className="apikey-fun-key-item-actions">
+                        <button
+                          type="button"
+                          className="apikey-fun-key-copy"
+                          title={t('apiKeyFun.keyManager.useKey', '使用密钥')}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleOpenKeyConfig(item);
+                          }}
+                        >
+                          <Play size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="apikey-fun-key-copy"
+                          onClick={(e) => handleCopyToClipboard(item.key, item.id, e)}
+                          title={t('apiKeyFun.copyKey', '复制密钥')}
+                        >
+                          {copiedId === item.id ? (
+                            <CheckCircle2 size={14} className="success-icon" />
+                          ) : (
+                            <Copy size={14} />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          className="apikey-fun-key-delete"
+                          disabled={isEditing}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (pendingDeleteKey) return;
+                            deleteError.clear();
+                            setPendingDeleteKey(item);
+                          }}
+                          title={t('apiKeyFun.keyManager.deleteButton', '删除')}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </aside>
+      </div>
+      {configKey && (
+        <ApiKeyFunKeyConfigModal
+          keyName={configKey.name}
+          apiKey={configKey.key}
+          models={configModels}
+          modelsLoading={configModelsLoading}
+          onClose={() => setConfigKey(null)}
+        />
+      )}
+      {pendingDeleteKey && (
+        <div className="modal-overlay">
+          <div className="modal-content apikey-fun-delete-modal" role="alertdialog" aria-modal="true" aria-labelledby="apikey-fun-delete-title" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 id="apikey-fun-delete-title">{t('common.delete', '删除')}</h2>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={closeDeleteKeyDialog}
+                disabled={deletingKey}
+                aria-label={t('common.close', '关闭')}
+              >
+                <X />
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>
+                {t(
+                  'apiKeyFun.keyManager.deleteConfirm',
+                  '确定删除已保存密钥“{{name}}”吗？此操作无法撤销。',
+                  { name: pendingDeleteKey.name },
+                )}
+              </p>
+              <ModalErrorMessage message={deleteError.message} scrollKey={deleteError.scrollKey} position="bottom" />
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={closeDeleteKeyDialog}
+                disabled={deletingKey}
+              >
+                {t('common.cancel', '取消')}
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => void handleDeleteManagedKey()}
+                disabled={deletingKey}
+              >
+                {deletingKey ? t('common.processing') : t('common.delete', '删除')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

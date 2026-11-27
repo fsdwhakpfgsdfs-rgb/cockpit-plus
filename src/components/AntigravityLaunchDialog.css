@@ -1,0 +1,50 @@
+.antigravity-launch-options > button {
+  flex: 1 1 180px;
+}
+
+.antigravity-launch-cli,
+.antigravity-launch-instance-details {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  min-width: 0;
+}
+
+.antigravity-launch-instance-details .client-launch-account {
+  margin-bottom: 0;
+}
+
+.antigravity-launch-retry {
+  justify-self: start;
+}
+
+.antigravity-launch-initialization {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.antigravity-launch-initialization > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--primary);
+}
+
+.antigravity-launch-initialization > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.antigravity-launch-initialization strong {
+  font-weight: 600;
+}

@@ -1,0 +1,72 @@
+name: Build Windows (Unified Gateway)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - gateway
+
+concurrency:
+  group: build-win-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install frontend deps
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Sync version
+        run: npm run sync-version
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build frontend
+        run: npx vite build
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          cache-on-failure: true
+
+      - name: Build app (release, no bundle)
+        run: npx tauri build --ci --no-bundle
+
+      - name: Locate artifacts
+        shell: pwsh
+        run: |
+          $found = Get-ChildItem -Path target/release -Filter *.exe -ErrorAction SilentlyContinue
+          if (-not $found) { Write-Error 'no exe found under target/release' }
+          $found | ForEach-Object { Write-Host ("found: " + $_.FullName + "  " + [math]::Round($_.Length/1MB) + " MB") }
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: cockpit-tools-windows-x64
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            target/release/*.exe
+            target/ci/*.exe
