@@ -394,10 +394,10 @@ fn gw_status_blocked(status: Option<&str>) -> bool {
     )
 }
 
-/// 三级代理解析：账号自带 → 平台覆盖 → 全局默认；空字符串表示强制直连
+/// 代理解析（四级）：账号自带 → 账号级 → 平台级 → 全局；空字符串表示强制直连
 fn resolve_proxy(
-    account_id: &str,
     cfg: &GatewayConfig,
+    account_id: &str,
     platform: &str,
     account_proxy: Option<&str>,
 ) -> Option<String> {
