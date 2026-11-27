@@ -695,10 +695,10 @@ fn pick_account(
             let usage = st.usage.lock().unwrap();
             pool.iter()
                 .min_by_key(|a| {
-                    // 额度越低越靠后；额度未知按 100 处理
+                    // 额度越高越优先（取负值让 min_by_key 选中高额度）；额度未知按 100 处理
                     let quota = a.quota_left.unwrap_or(100) as i64;
                     let used = *usage.get(&a.id).unwrap_or(&0) as i64;
-                    (quota, used)
+                    (-quota, used)
                 })
                 .cloned()
         }
