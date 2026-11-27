@@ -372,6 +372,119 @@ fn load_pool() -> Vec<PoolAccount> {
         });
     }
 
+    // ---------- ZCode ----------
+    for a in crate::modules::zcode_account::list_accounts_checked().unwrap_or_default() {
+        let token = if !a.access_token.trim().is_empty() {
+            a.access_token.clone()
+        } else {
+            a.api_key.clone().unwrap_or_default()
+        };
+        if token.trim().is_empty() {
+            continue;
+        }
+        out.push(PoolAccount {
+            id: a.id.clone(),
+            name: a.email.clone(),
+            email: a.email.clone(),
+            access_token: token,
+            platform: "zcode".to_string(),
+            base_url: None,
+            protocol: "openai".to_string(),
+            quota_left: None,
+            exhausted: false,
+        });
+    }
+
+    // ---------- Kiro ----------
+    for a in crate::modules::kiro_account::list_accounts_checked().unwrap_or_default() {
+        if a.access_token.trim().is_empty() {
+            continue;
+        }
+        out.push(PoolAccount {
+            id: a.id.clone(),
+            name: a.email.clone(),
+            email: a.email.clone(),
+            access_token: a.access_token.clone(),
+            platform: "kiro".to_string(),
+            base_url: None,
+            protocol: "openai".to_string(),
+            quota_left: None,
+            exhausted: false,
+        });
+    }
+
+    // ---------- MiniMax Code ----------
+    for a in crate::modules::minimax_code_account::list_accounts_checked().unwrap_or_default() {
+        if a.access_token.trim().is_empty() {
+            continue;
+        }
+        out.push(PoolAccount {
+            id: a.id.clone(),
+            name: a.email.clone(),
+            email: a.email.clone(),
+            access_token: a.access_token.clone(),
+            platform: "minimax".to_string(),
+            base_url: None,
+            protocol: "openai".to_string(),
+            quota_left: None,
+            exhausted: false,
+        });
+    }
+
+    // ---------- GitHub Copilot ----------
+    for a in crate::modules::github_copilot_account::list_accounts_checked().unwrap_or_default() {
+        if a.copilot_token.trim().is_empty() {
+            continue;
+        }
+        out.push(PoolAccount {
+            id: a.id.clone(),
+            name: a.github_login.clone(),
+            email: a.github_email.clone().unwrap_or_default(),
+            access_token: a.copilot_token.clone(),
+            platform: "github-copilot".to_string(),
+            base_url: None,
+            protocol: "openai".to_string(),
+            quota_left: None,
+            exhausted: false,
+        });
+    }
+
+    // ---------- Windsurf ----------
+    for a in crate::modules::windsurf_account::list_accounts_checked().unwrap_or_default() {
+        if a.copilot_token.trim().is_empty() {
+            continue;
+        }
+        out.push(PoolAccount {
+            id: a.id.clone(),
+            name: a.github_login.clone(),
+            email: a.github_email.clone().unwrap_or_default(),
+            access_token: a.copilot_token.clone(),
+            platform: "windsurf".to_string(),
+            base_url: None,
+            protocol: "openai".to_string(),
+            quota_left: None,
+            exhausted: false,
+        });
+    }
+
+    // ---------- T3 Code ----------
+    for a in crate::modules::t3code_account::list_accounts_checked().unwrap_or_default() {
+        if a.clerk_jwt.trim().is_empty() {
+            continue;
+        }
+        out.push(PoolAccount {
+            id: a.id.clone(),
+            name: a.email.clone(),
+            email: a.email.clone(),
+            access_token: a.clerk_jwt.clone(),
+            platform: "t3code".to_string(),
+            base_url: None,
+            protocol: "openai".to_string(),
+            quota_left: None,
+            exhausted: false,
+        });
+    }
+
     // ---------- Claude（仅配置了 API Key 的账号）----------
     for a in crate::modules::claude_account::list_accounts_checked().unwrap_or_default() {
         let Some(key) = a.api_key.as_ref().filter(|k| !k.trim().is_empty()) else {
@@ -422,6 +535,12 @@ fn upstream_for(platform: &str) -> (&'static str, &'static str) {
         // 腾讯系：WorkBuddy / CodeBuddy 共用同一后端
         "codebuddy" | "codebuddy_cn" | "workbuddy" => ("https://wb.tencentbuddy.com", "/v2/chat/completions"),
         "grok" => ("https://api.x.ai/v1", "/chat/completions"),
+        "zcode" => ("https://api.z.ai/api/paas/v4", "/chat/completions"),
+        "kiro" => ("https://prod.us-east-1.agentcore.kiro.dev", "/chat/completions"),
+        "minimax" => ("https://agent.minimax.io", "/v1/chat/completions"),
+        "github-copilot" => ("https://api.githubcopilot.com", "/chat/completions"),
+        "windsurf" => ("https://server.codeium.com", "/chat/completions"),
+        "t3code" => ("https://api.openai.com/v1", "/chat/completions"),
         _ => ("https://api.openai.com/v1", "/chat/completions"),
     }
 }
