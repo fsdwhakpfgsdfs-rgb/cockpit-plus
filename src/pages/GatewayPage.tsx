@@ -89,6 +89,8 @@ export default function GatewayPage() {
   const [provOpen, setProvOpen] = useState(false);
   const [provForm, setProvForm] = useState({ ...EMPTY_PROVIDER });
   const [testing, setTesting] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanHits, setScanHits] = useState<{ port: number; url: string; socks5: string; latencyMs: number }[]>([]);
   const [testResult, setTestResult] = useState('');
 
   const timer = useRef<number | null>(null);
@@ -208,6 +210,21 @@ export default function GatewayPage() {
       out[k] = v === '' ? 'direct' : v;
     }
     return out;
+  };
+
+  const scanProxy = async () => {
+    setScanning(true);
+    setScanHits([]);
+    try {
+      const r = await fetch(API(port, '/api/proxy/scan'));
+      const j = await r.json();
+      setScanHits(j.found ?? []);
+      if ((j.found ?? []).length === 0) setTestResult('没找到可用代理端口（扫了 ' + (j.scanned ?? 0) + ' 个）');
+    } catch (e) {
+      setTestResult(String(e));
+    } finally {
+      setScanning(false);
+    }
   };
 
   const saveConfig = async () => {
@@ -676,7 +693,27 @@ export default function GatewayPage() {
             </label>
             <label className="gw-field">
               <span>出站代理（留空直连，例如 http://127.0.0.1:10808）</span>
-              <input className="gw-input" value={cfgForm.proxy} onChange={(e) => setCfgForm({ ...cfgForm, proxy: e.target.value })} placeholder="http://127.0.0.1:10808 或 direct" />
+              <div className="gw-proxy-row">
+                <input className="gw-input" value={cfgForm.proxy} onChange={(e) => setCfgForm({ ...cfgForm, proxy: e.target.value })} placeholder="http://127.0.0.1:10808 或 direct" />
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => void scanProxy()} disabled={scanning}>
+                  {scanning ? '扫描中…' : '扫描本机'}
+                </button>
+              </div>
+              {scanHits.length > 0 && (
+                <div className="gw-proxy-hits">
+                  {scanHits.map((h) => (
+                    <button
+                      key={h.port}
+                      type="button"
+                      className="gw-proxy-hit"
+                      onClick={() => setCfgForm({ ...cfgForm, proxy: h.url })}
+                    >
+                      {h.url}
+                      <em>{h.latencyMs}ms</em>
+                    </button>
+                  ))}
+                </div>
+              )}
             </label>
             <div className="gw-field">
               <span>按平台覆盖代理（留空 = 沿用上级；填 <code>direct</code> = 强制直连；否则填代理地址）</span>

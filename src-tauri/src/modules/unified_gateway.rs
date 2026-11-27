@@ -1376,6 +1376,100 @@ fn looks_like_quota_error(status: u16, body: &str) -> bool {
     KEYS.iter().any(|k| b.contains(k))
 }
 
+// ---------------------------------------------------------------- 本地代理探测
+
+/// 列出本机 TCP 监听端口（解析 netstat，不引入额外 crate）
+fn local_listening_ports() -> Vec<u16> {
+    let Ok(out) = std::process::Command::new("netstat")
+        .args(["-ano", "-p", "TCP"])
+        .output()
+    else {
+        return Vec::new();
+    };
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut ports: Vec<u16> = Vec::new();
+    for line in text.lines() {
+        if !line.contains("LISTENING") {
+            continue;
+        }
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        if cols.len() < 2 {
+            continue;
+        }
+        let addr = cols[1];
+        // 只看本地回环或通配监听
+        if !(addr.starts_with("127.0.0.1:") || addr.starts_with("0.0.0.0:") || addr.starts_with("[::]:")) {
+            continue;
+        }
+        let Some(port_str) = addr.rsplit(':').next() else {
+            continue;
+        };
+        if let Ok(p) = port_str.parse::<u16>() {
+            // 排除系统端口与网关自身
+            if p > 1024 && p != 8787 {
+                ports.push(p);
+            }
+        }
+    }
+    ports.sort_unstable();
+    ports.dedup();
+    ports
+}
+
+/// 扫描本机可用作 HTTP 代理的端口
+async fn scan_proxy() -> Response {
+    let ports = local_listening_ports();
+    let scanned = ports.len();
+
+    let mut set = tokio::task::JoinSet::new();
+    for port in ports {
+        set.spawn(async move {
+            let url = format!("http://127.0.0.1:{port}");
+            let Ok(px) = reqwest::Proxy::all(&url) else {
+                return None;
+            };
+            let Ok(client) = reqwest::Client::builder()
+                .proxy(px)
+                .timeout(Duration::from_millis(2500))
+                .build()
+            else {
+                return None;
+            };
+            let started = Instant::now();
+            match client.get("https://api.github.com").send().await {
+                Ok(resp) => {
+                    let status = resp.status().as_u16();
+                    Some((port, status, started.elapsed().as_millis() as u64))
+                }
+                Err(_) => None,
+            }
+        });
+    }
+
+    let mut found: Vec<(u16, u16, u64)> = Vec::new();
+    while let Some(joined) = set.join_next().await {
+        if let Ok(Some(hit)) = joined {
+            found.push(hit);
+        }
+    }
+    found.sort_by_key(|(_, _, ms)| *ms);
+
+    let list: Vec<Value> = found
+        .iter()
+        .map(|(port, status, ms)| {
+            json!({
+                "port": port,
+                "url": format!("http://127.0.0.1:{port}"),
+                "socks5": format!("socks5://127.0.0.1:{port}"),
+                "status": status,
+                "latencyMs": ms,
+            })
+        })
+        .collect();
+
+    Json(json!({ "scanned": scanned, "found": list })).into_response()
+}
+
 // ---------------------------------------------------------------- 网关密钥管理
 
 /// 生成 sk-agt-<32hex>
@@ -1616,6 +1710,7 @@ fn build_router(st: Arc<GatewayState>) -> Router {
         .route("/api/config", get(get_config).post(save_config))
         .route("/api/sessions", get(sessions).delete(clear_sessions))
         .route("/api/pool/refresh", post(refresh_pool))
+        .route("/api/proxy/scan", get(scan_proxy))
         .route("/api/keys", get(list_keys).post(create_key))
         .route("/api/keys/{id}", axum::routing::delete(delete_key))
         .route("/api/keys/{id}/toggle", post(toggle_key))

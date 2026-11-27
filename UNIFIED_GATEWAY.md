@@ -299,6 +299,7 @@ kimi-k3.1-pro-highspeed         kimi-k3     hy-image-3.5
 | GET · POST | `/api/providers` | 手动供应商列表 / 新增或更新 |
 | DELETE | `/api/providers/{id}` | 删除 |
 | POST | `/api/providers/test` | 连通性测试（打 `{base_url}/models`） |
+| GET | `/api/proxy/scan` | 扫描本机可用作 HTTP 代理的监听端口（换 VPN 后找端口用） |
 
 密钥格式：`sk-agt-<32 位 hex>`，明文只在创建时返回一次。
 
