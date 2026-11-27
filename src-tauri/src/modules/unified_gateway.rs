@@ -431,15 +431,10 @@ fn client_for(
         return Some(c.clone());
     }
     let mut b = reqwest::Client::builder().timeout(Duration::from_secs(timeout_secs));
-    match proxy {
-        Some(p) if !p.is_empty() => {
-            if let Ok(px) = reqwest::Proxy::all(p) {
-                b = b.proxy(px);
-            }
-        }
-        // 显式直连：必须关掉 reqwest 对环境变量 HTTP(S)_PROXY 的自动读取
-        _ => {
-            b = b.no_proxy();
+    b = b.no_proxy(); // 关掉环境变量/系统自动代理，只认显式配置
+    if let Some(p) = proxy.filter(|p| !p.is_empty()) {
+        if let Ok(px) = reqwest::Proxy::all(p) {
+            b = b.proxy(px);
         }
     }
     let c = b.build().ok()?;
@@ -1424,44 +1419,62 @@ async fn scan_proxy() -> Response {
     let mut set = tokio::task::JoinSet::new();
     for port in ports {
         set.spawn(async move {
-            let url = format!("http://127.0.0.1:{port}");
-            let Ok(px) = reqwest::Proxy::all(&url) else {
-                return None;
-            };
-            let Ok(client) = reqwest::Client::builder()
-                .proxy(px)
-                .timeout(Duration::from_millis(2500))
-                .build()
-            else {
-                return None;
-            };
-            let started = Instant::now();
-            match client.get("https://api.github.com").send().await {
-                Ok(resp) => {
-                    let status = resp.status().as_u16();
-                    Some((port, status, started.elapsed().as_millis() as u64))
+            // 同一端口分别测 http 和 socks5 两种代理协议
+            let mut http_ok = false;
+            let mut socks_ok = false;
+            let mut latency = 0u64;
+
+            for scheme in ["http", "socks5"] {
+                let proxy_url = format!("{scheme}://127.0.0.1:{port}");
+                let Ok(px) = reqwest::Proxy::all(&proxy_url) else {
+                    continue;
+                };
+                let Ok(client) = reqwest::Client::builder()
+                    .no_proxy()
+                    .proxy(px)
+                    .timeout(Duration::from_millis(2500))
+                    .build()
+                else {
+                    continue;
+                };
+                let started = Instant::now();
+                if let Ok(_resp) = client.get("https://api.github.com").send().await {
+                    if scheme == "http" {
+                        http_ok = true;
+                    } else {
+                        socks_ok = true;
+                    }
+                    let ms = started.elapsed().as_millis() as u64;
+                    if latency == 0 || ms < latency {
+                        latency = ms;
+                    }
                 }
-                Err(_) => None,
             }
+
+            if !http_ok && !socks_ok {
+                return None;
+            }
+            Some((port, http_ok, socks_ok, latency))
         });
     }
 
-    let mut found: Vec<(u16, u16, u64)> = Vec::new();
+    let mut found: Vec<(u16, bool, bool, u64)> = Vec::new();
     while let Some(joined) = set.join_next().await {
         if let Ok(Some(hit)) = joined {
             found.push(hit);
         }
     }
-    found.sort_by_key(|(_, _, ms)| *ms);
+    found.sort_by_key(|(_, _, _, ms)| *ms);
 
     let list: Vec<Value> = found
         .iter()
-        .map(|(port, status, ms)| {
+        .map(|(port, http_ok, socks_ok, ms)| {
             json!({
                 "port": port,
-                "url": format!("http://127.0.0.1:{port}"),
-                "socks5": format!("socks5://127.0.0.1:{port}"),
-                "status": status,
+                "http": http_ok,
+                "socks5": socks_ok,
+                "httpUrl": format!("http://127.0.0.1:{port}"),
+                "socks5Url": format!("socks5://127.0.0.1:{port}"),
                 "latencyMs": ms,
             })
         })
@@ -1469,6 +1482,7 @@ async fn scan_proxy() -> Response {
 
     Json(json!({ "scanned": scanned, "found": list })).into_response()
 }
+
 
 // ---------------------------------------------------------------- 网关密钥管理
 

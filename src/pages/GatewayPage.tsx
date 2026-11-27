@@ -90,7 +90,7 @@ export default function GatewayPage() {
   const [provForm, setProvForm] = useState({ ...EMPTY_PROVIDER });
   const [testing, setTesting] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [scanHits, setScanHits] = useState<{ port: number; url: string; socks5: string; latencyMs: number }[]>([]);
+  const [scanHits, setScanHits] = useState<{ port: number; http: boolean; socks5: boolean; httpUrl: string; socks5Url: string; latencyMs: number }[]>([]);
   const [testResult, setTestResult] = useState('');
 
   const timer = useRef<number | null>(null);
@@ -702,15 +702,19 @@ export default function GatewayPage() {
               {scanHits.length > 0 && (
                 <div className="gw-proxy-hits">
                   {scanHits.map((h) => (
-                    <button
-                      key={h.port}
-                      type="button"
-                      className="gw-proxy-hit"
-                      onClick={() => setCfgForm({ ...cfgForm, proxy: h.url })}
-                    >
-                      {h.url}
-                      <em>{h.latencyMs}ms</em>
-                    </button>
+                    <div key={h.port} className="gw-proxy-hit-row">
+                      <span className="gw-proxy-hit-port">:{h.port}</span>
+                      {h.http && (
+                        <button type="button" className="gw-proxy-hit" onClick={() => setCfgForm({ ...cfgForm, proxy: h.httpUrl })}>
+                          http <em>{h.latencyMs}ms</em>
+                        </button>
+                      )}
+                      {h.socks5 && (
+                        <button type="button" className="gw-proxy-hit" onClick={() => setCfgForm({ ...cfgForm, proxy: h.socks5Url })}>
+                          socks5 <em>{h.latencyMs}ms</em>
+                        </button>
+                      )}
+                    </div>
                   ))}
                 </div>
               )}

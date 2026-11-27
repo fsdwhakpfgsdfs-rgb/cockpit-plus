@@ -77,3 +77,7 @@ tsc*.log
 _v1*/
 _v1*/
 _v19/
+_v21/
+_v2*/
+tsc*.log
+ci*.log
