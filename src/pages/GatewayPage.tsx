@@ -186,6 +186,30 @@ export default function GatewayPage() {
     window.setTimeout(() => setCopied(''), 1500);
   };
 
+  // 代理输入归一化：
+  //   空        → 不提交（沿用上一级）
+  //   direct    → 提交 ""（强制直连）
+  //   其他       → 提交原值
+  const normalizeProxyMap = (m: Record<string, string>) => {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(m)) {
+      const t = (v ?? '').trim();
+      if (!t) continue;
+      if (/^(direct|none|off|直连)$/i.test(t)) { out[k] = ''; continue; }
+      out[k] = t;
+    }
+    return out;
+  };
+
+  // 回显：把存储的 "" 还原成 direct，让用户看得见
+  const expandProxyMap = (m: Record<string, string> | undefined) => {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(m ?? {})) {
+      out[k] = v === '' ? 'direct' : v;
+    }
+    return out;
+  };
+
   const saveConfig = async () => {
     try {
       const r = await fetch(API(port, '/api/config'), {
@@ -202,8 +226,8 @@ export default function GatewayPage() {
           max_attempts: cfgForm.maxAttempts,
           quota_cooldown_secs: cfgForm.quotaCooldownSecs,
           proxy: cfgForm.proxy.trim() ? cfgForm.proxy.trim() : null,
-          platform_proxies: cfgForm.platformProxies,
-          account_proxies: cfgForm.accountProxies,
+          platform_proxies: normalizeProxyMap(cfgForm.platformProxies),
+          account_proxies: normalizeProxyMap(cfgForm.accountProxies),
         }),
       });
       const j = await r.json();
@@ -364,8 +388,8 @@ export default function GatewayPage() {
                   sessionAffinity: status.sessionAffinity,
                   quotaCooldownSecs: status.quotaCooldownSecs ?? 300,
                   proxy: status.proxy ?? '',
-                  platformProxies: status.platformProxies ?? {},
-                  accountProxies: status.accountProxies ?? {},
+                  platformProxies: expandProxyMap(status.platformProxies),
+                  accountProxies: expandProxyMap(status.accountProxies),
                 });
               }
               setCfgOpen(true);
@@ -652,22 +676,22 @@ export default function GatewayPage() {
             </label>
             <label className="gw-field">
               <span>出站代理（留空直连，例如 http://127.0.0.1:10808）</span>
-              <input className="gw-input" value={cfgForm.proxy} onChange={(e) => setCfgForm({ ...cfgForm, proxy: e.target.value })} placeholder="http://127.0.0.1:10808" />
+              <input className="gw-input" value={cfgForm.proxy} onChange={(e) => setCfgForm({ ...cfgForm, proxy: e.target.value })} placeholder="http://127.0.0.1:10808 或 direct" />
             </label>
             <div className="gw-field">
-              <span>按平台覆盖代理（留空 = 直连；不填 = 沿用上面的默认代理）</span>
+              <span>按平台覆盖代理（留空 = 沿用上级；填 <code>direct</code> = 强制直连；否则填代理地址）</span>
               <div className="gw-platproxies">
-                <label key="codebuddy_cn" className="gw-platproxy-row"><code>codebuddy_cn</code><input className="gw-input" value={cfgForm.platformProxies["codebuddy_cn"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "codebuddy_cn": e.target.value } })} placeholder="http://127.0.0.1:10808" /></label>
-                <label key="workbuddy" className="gw-platproxy-row"><code>workbuddy</code><input className="gw-input" value={cfgForm.platformProxies["workbuddy"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "workbuddy": e.target.value } })} placeholder="http://127.0.0.1:10808" /></label>
-                <label key="codex" className="gw-platproxy-row"><code>codex</code><input className="gw-input" value={cfgForm.platformProxies["codex"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "codex": e.target.value } })} placeholder="http://127.0.0.1:10808" /></label>
-                <label key="claude" className="gw-platproxy-row"><code>claude</code><input className="gw-input" value={cfgForm.platformProxies["claude"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "claude": e.target.value } })} placeholder="http://127.0.0.1:10808" /></label>
-                <label key="grok" className="gw-platproxy-row"><code>grok</code><input className="gw-input" value={cfgForm.platformProxies["grok"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "grok": e.target.value } })} placeholder="http://127.0.0.1:10808" /></label>
-                <label key="github-copilot" className="gw-platproxy-row"><code>github-copilot</code><input className="gw-input" value={cfgForm.platformProxies["github-copilot"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "github-copilot": e.target.value } })} placeholder="http://127.0.0.1:10808" /></label>
+                <label key="codebuddy_cn" className="gw-platproxy-row"><code>codebuddy_cn</code><input className="gw-input" value={cfgForm.platformProxies["codebuddy_cn"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "codebuddy_cn": e.target.value } })} placeholder="http://127.0.0.1:10808 或 direct" /></label>
+                <label key="workbuddy" className="gw-platproxy-row"><code>workbuddy</code><input className="gw-input" value={cfgForm.platformProxies["workbuddy"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "workbuddy": e.target.value } })} placeholder="http://127.0.0.1:10808 或 direct" /></label>
+                <label key="codex" className="gw-platproxy-row"><code>codex</code><input className="gw-input" value={cfgForm.platformProxies["codex"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "codex": e.target.value } })} placeholder="http://127.0.0.1:10808 或 direct" /></label>
+                <label key="claude" className="gw-platproxy-row"><code>claude</code><input className="gw-input" value={cfgForm.platformProxies["claude"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "claude": e.target.value } })} placeholder="http://127.0.0.1:10808 或 direct" /></label>
+                <label key="grok" className="gw-platproxy-row"><code>grok</code><input className="gw-input" value={cfgForm.platformProxies["grok"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "grok": e.target.value } })} placeholder="http://127.0.0.1:10808 或 direct" /></label>
+                <label key="github-copilot" className="gw-platproxy-row"><code>github-copilot</code><input className="gw-input" value={cfgForm.platformProxies["github-copilot"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "github-copilot": e.target.value } })} placeholder="http://127.0.0.1:10808 或 direct" /></label>
               </div>
             </div>
 
               <div className="gw-field">
-                <span>按账号覆盖代理（优先级最高；留空 = 直连；不填 = 沿用平台/全局）</span>
+                <span>按账号覆盖代理（优先级最高；留空 = 沿用上级；填 <code>direct</code> = 强制直连；否则填代理地址）</span>
                 <div className="gw-accproxies">
                   {(status?.pool.accounts ?? []).map((acc) => (
                     <label key={acc.id} className="gw-accproxy-row">
@@ -679,7 +703,7 @@ export default function GatewayPage() {
                         className="gw-input"
                         value={cfgForm.accountProxies[acc.id] ?? ''} 
                         onChange={(e) => setCfgForm({ ...cfgForm, accountProxies: { ...cfgForm.accountProxies, [acc.id]: e.target.value } })}
-                        placeholder="http://127.0.0.1:10808"
+                        placeholder="http://127.0.0.1:10808 或 direct"
                       />
                     </label>
                   ))}
