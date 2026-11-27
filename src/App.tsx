@@ -136,6 +136,9 @@ import {
 const DashboardPage = lazy(() =>
   import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })),
 );
+const GatewayPage = lazy(() =>
+  import('./pages/GatewayPage').then((module) => ({ default: module.default })),
+);
 const AccountsPage = lazy(() =>
   import('./pages/AccountsPage').then((module) => ({ default: module.AccountsPage })),
 );
@@ -211,9 +214,6 @@ const SettingsPage = lazy(() =>
 );
 const TwoFactorAuthPage = lazy(() =>
   import('./pages/TwoFactorAuthPage').then((module) => ({ default: module.TwoFactorAuthPage })),
-);
-const GatewayPage = lazy(() =>
-  import('./pages/GatewayPage').then((module) => ({ default: module.default })),
 );
 const ManualPage = lazy(() =>
   import('./pages/ManualPage').then((module) => ({ default: module.ManualPage })),

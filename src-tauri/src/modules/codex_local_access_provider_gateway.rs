@@ -768,6 +768,12 @@ pub(crate) fn provider_model_slots_for_account(
     account: &CodexAccount,
     models: &[String],
 ) -> Vec<ProviderGatewayModelSlot> {
+    if account_requires_responses_compatibility_gateway(account)
+        && !account.api_sync_model_catalog_to_codex
+        && !crate::modules::codex_remote_service::is_known_account(account)
+    {
+        return Vec::new();
+    }
     if !is_official_deepseek_account(account)
         && !codex_account::account_uses_raw_provider_model_ids(account)
     {
@@ -1238,6 +1244,22 @@ fn is_chat_completions_api_key_account(account: &CodexAccount) -> bool {
         && matches!(provider_gateway_wire_api_for_account(account).as_str(), "chat_completions" | "anthropic")
 }
 
+fn account_requires_responses_compatibility_gateway(account: &CodexAccount) -> bool {
+    account.is_api_key_auth()
+        && account.api_provider_mode == CodexApiProviderMode::Custom
+        && !is_local_access_runtime_account_id(&account.id)
+        && !codex_account::account_uses_provider_direct_access(account)
+        && !codex_account::account_uses_cdp_model_injection(account)
+        && provider_gateway_wire_api_for_account(account) == "responses"
+        && !account.api_supports_websockets
+        && provider_gateway_bound_oauth_account_id_for_account(account).is_some()
+        && account
+            .api_base_url
+            .as_deref()
+            .and_then(|url| Url::parse(url.trim()).ok())
+            .is_some_and(|url| url.host_str().is_some_and(|host| host != "api.openai.com"))
+}
+
 pub fn account_requires_provider_gateway(account: &CodexAccount) -> bool {
     if codex_account::account_uses_provider_direct_access(account) {
         return false;
@@ -1255,7 +1277,9 @@ pub fn account_requires_provider_gateway(account: &CodexAccount) -> bool {
     if is_chat_completions_api_key_account(account) {
         return true;
     }
-    if account_uses_synced_model_shell_gateway(account) {
+    if account_requires_responses_compatibility_gateway(account)
+        || account_uses_synced_model_shell_gateway(account)
+    {
         return true;
     }
     // 生图转发需要本地网关拦截 gpt-image 请求；账号选了生图账号池时强制启用网关。
@@ -1400,21 +1424,9 @@ fn provider_gateway_for_account(
         let source = codex_account::zcode_upstream_account(account)
             .ok_or_else(|| "ZCode 账号还不存在或已删除".to_string())?;
         let is_oauth = source.auth_mode == crate::models::zcode::ZcodeAuthMode::Oauth;
-        let has_credential = if is_oauth {
-            if source.team_plan.is_some() {
-                !source.access_token.trim().is_empty()
-            } else {
-                !source.zcode_jwt_token.trim().is_empty()
-            }
-        } else {
-            source
-                .api_key
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .is_some()
-        };
-        if !has_credential {
+        if is_oauth {
+            crate::modules::zcode_account::oauth_inference_session(&source)?;
+        } else if source.api_key.as_deref().is_none_or(|key| key.trim().is_empty()) {
             return Err("ZCode 供应商账号缺少可用凭据，请先在 ZCode 页面重新登录".to_string());
         }
         let upstream_models = provider_gateway_models_for_account(account);
@@ -1439,11 +1451,7 @@ fn provider_gateway_for_account(
         return Ok(CodexLocalAccessProviderGateway {
             auth_scheme: Some(if is_oauth { "bearer" } else { "x-api-key" }.to_string()),
             base_url: if is_oauth {
-                if source.team_plan.is_some() {
-                    crate::modules::zcode_account::BIGMODEL_API_BASE_URL.to_string()
-                } else {
-                    codex_account::ZCODE_PLAN_API_BASE_URL.to_string()
-                }
+                crate::modules::zcode_account::ZCODE_PLAN_API_BASE_URL.to_string()
             } else if source.provider.eq_ignore_ascii_case("bigmodel") {
                 crate::modules::zcode_account::BIGMODEL_API_BASE_URL.to_string()
             } else {
@@ -1836,7 +1844,6 @@ fn build_mixed_model_gateway_collection_for_profile(
         id: mixed_model_routing_api_key_id(),
         label: "Mixed Model Routing".to_string(),
         key: key.clone(),
-        native_provider: None,
         provider_gateway: None,
         model_routing: Some(CodexLocalAccessModelRouting {
             default_route: "oauth".to_string(),
@@ -1901,6 +1908,13 @@ fn build_provider_gateway_collection_for_profile(
     let is_remote_service = crate::modules::codex_remote_service::is_known_account(account);
     if is_remote_service {
         collection.session_identity_mapping_enabled = false;
+    }
+    if is_remote_service
+        || (account_requires_responses_compatibility_gateway(account)
+            && !is_official_deepseek_account(account)
+            && !account_uses_synced_model_shell_gateway(account))
+    {
+        // A previously direct provider does not inherit API Service model rules.
         collection.model_aliases.clear();
         collection.excluded_models.clear();
     }
@@ -1969,7 +1983,6 @@ fn build_provider_gateway_collection_for_profile(
         id: provider_gateway_api_key_id(&account.id),
         label: format!("Provider Gateway: {}", account.email),
         key: key.clone(),
-        native_provider: native_provider_for_provider_account(account),
         provider_gateway: if uses_grok_upstream {
             None
         } else {
@@ -2055,7 +2068,6 @@ fn build_bound_oauth_local_gateway_collection_for_profile(
         id: provider_gateway_api_key_id(&account.id),
         label: format!("Bound OAuth Local Gateway: {}", account.email),
         key: key.clone(),
-        native_provider: None,
         provider_gateway: None,
         model_routing: None,
         inherit_account_pool: Some(false),
@@ -2246,7 +2258,6 @@ fn build_model_provider_gateway_test_collection(
         id: provider_gateway_test_api_key_id(request),
         label: provider_gateway_test_api_key_label(request),
         key: collection.api_key.clone(),
-        native_provider: None,
         provider_gateway,
         model_routing: None,
         inherit_account_pool: Some(false),
@@ -2804,6 +2815,37 @@ pub fn cleanup_provider_gateway_profile_model_overrides(profile_dir: &Path) -> R
     Ok(())
 }
 
+async fn write_provider_gateway_profile_takeover_with_provider_name(
+    profile_dir: &Path,
+    collection: &CodexLocalAccessCollection,
+    key: &str,
+    preserve_catalog: bool,
+    provider_name: Option<&str>,
+    prepared_oauth: Option<&CodexAccount>,
+) -> Result<(), String> {
+    if preserve_catalog {
+        write_local_access_profile_credentials(
+            profile_dir,
+            collection,
+            Some(key),
+            provider_name,
+            prepared_oauth,
+        )
+        .await?;
+        Ok(())
+    } else {
+        write_local_access_profile_takeover_with_provider_name(
+            profile_dir,
+            collection,
+            Some(key),
+            false,
+            provider_name,
+            prepared_oauth,
+        )
+        .await
+    }
+}
+
 pub async fn activate_provider_gateway_for_dir(
     profile_dir: &Path,
     account_id: &str,
@@ -2833,11 +2875,11 @@ pub(crate) async fn activate_provider_gateway_for_dir_with_prepared_oauth(
             build_provider_gateway_collection_for_profile(profile_dir, &account)?;
         let model_slots = provider_model_slots_for_account(&account, &provider_gateway.upstream_models);
         save_profile_takeover_backup(profile_dir, &key)?;
-        runtime.block_on(write_local_access_profile_takeover_with_provider_name(
+        runtime.block_on(write_provider_gateway_profile_takeover_with_provider_name(
             profile_dir,
             &collection,
-            Some(&key),
-            false,
+            &key,
+            model_slots.is_empty() && account_requires_responses_compatibility_gateway(&account),
             account.api_provider_name.as_deref(),
             prepared_oauth.as_ref(),
         ))?;

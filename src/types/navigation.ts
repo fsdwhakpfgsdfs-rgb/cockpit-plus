@@ -1,5 +1,6 @@
 export type Page =
   | 'dashboard'
+  | 'gateway'
   | 'manual'
   | 'api-relay'
   | 'overview'
@@ -32,7 +33,6 @@ export type Page =
   | 'wakeup'
   | 'verification'
   | '2fa'
-  | 'gateway'
   | 'settings';
 
 /** Pages that tray / floating-card restore may navigate to after main-window recreate. */

@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - gateway
+      - v152
 
 concurrency:
   group: build-win-${{ github.ref }}

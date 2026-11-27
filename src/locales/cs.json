@@ -11,6 +11,7 @@
     "pathLabel": "Cesta ke spuštění",
     "switchAndCopy": "Přepnout a kopírovat",
     "sharedInstanceStart": "Přepnout sdílený účet a spustit",
+    "ideSharedAccountHint": "Od verze Antigravity IDE 2.6 sdílejí všechny instance jedno přihlášení ke Googlu. Přepnutí účtu zde ovlivní i ostatní otevřené instance.",
     "sharedInstanceHint": "Ostatní instance Antigravity zůstanou otevřené a mohou převzít nový účet.",
     "sharedInstanceRestart": "Restartuje se pouze vybraná instance.",
     "lastSharedAccount": "Naposledy přepnutý sdílený účet",
@@ -716,6 +717,12 @@
         "singleToken": "Jednotlivý příklad (Token)",
         "singleJson": "Jednotlivý příklad (JSON)",
         "batchJson": "Dávkový příklad (JSON)"
+      },
+      "exposeToCodex": {
+        "action": "Připojit k Codex",
+        "inProgress": "Připojování…",
+        "success": "Připojeno k Codex",
+        "failed": "Nepodařilo se připojit k Codex: {{error}}"
       }
     },
     "sessionSharing": {
@@ -2328,7 +2335,7 @@
     "noTags": "Žádné štítky",
     "privacy": {
       "disable": "Vypnout režim soukromí",
-      "enable": "Zapnout režim soukromí"
+      "enable": "Vypnout telemetrii"
     },
     "refreshAllFailed": "Hromadná aktualizace selhala: {{error}}",
     "refreshAllSuccess": "Všechny účty byly obnoveny",
@@ -6522,6 +6529,8 @@
       "instructionsBytes": "Pokyny",
       "overloadRetry": "Opakování při přetížení",
       "overloadRecovery": "Doba obnovení",
+      "historyRejectionTitle": "Nekompatibilní formát historie",
+      "historyRejectionHint": "Upstream odmítl formát historie požadavků. Ukládají se pouze počty a příznaky; text konverzace se neukládá.",
       "recordPayloads": "Záznam těl požadavků",
       "recordPayloadsHint": "Ve výchozím stavu vypnuto. Omezené kopie klientských a odchozích požadavků se ukládají místně. Vypnutí zastaví nové záznamy; uložená těla lze smazat zvlášť.",
       "privacyHint": "Ověřovací pole jsou skryta, ale tajné údaje v rozhovoru mohou zůstat. Před kopírováním nebo sdílením je zkontrolujte.",
@@ -8216,7 +8225,13 @@
       "recovered": "{{model}} je opět dostupný od {{time}}",
       "until": "{{model}} při posledním testu omezen, obnova {{time}}",
       "unavailable": "{{model}} při posledním testu omezen",
-      "failed": "Poslední test {{model}} selhal"
+      "failed": "Poslední test {{model}} selhal",
+      "logUntil": "{{model}} omezen v protokolech klienta, obnovení {{time}}",
+      "logUnknownUntil": "V protokolech klienta zjištěn limit, obnovení {{time}}",
+      "logHits": "{{count}} výskytů v protokolech"
+    },
+    "exposeToCodex": {
+      "title": "Připojí se přes bránu Native Rust bez kopírování tokenu WorkBuddy"
     }
   },
   "minimaxCode": {
@@ -8428,6 +8443,12 @@
     },
     "instances": {
       "unsupported": "Více instancí ZCode je dostupných pouze v systémech macOS, Windows a Linux."
+    },
+    "exposeToCodex": {
+      "startPlan": "Obnovte kvótu ZCode a ověřte, že je osobní Z.ai Start Plan aktivní.",
+      "projectKey": "Připojte účet BigModel API Key pomocí klíče projektu.",
+      "signIn": "Přihlaste se znovu k ZCode a zkuste to znovu.",
+      "title": "Připojí se přes bránu Native Rust bez kopírování klíče ZCode API ani tokenu OAuth do konfigurace Codex"
     }
   },
   "zed": {
@@ -8850,7 +8871,10 @@
       "deploySuccess": "Nasazeno do Codexu: {{count}} modelů",
       "deployFailed": "Nasazení se nezdařilo: {{error}}",
       "useKey": "Použít klíč",
-      "deleteConfirm": "Smazat uložený klíč „{{name}}“? Tuto akci nelze vrátit zpět."
+      "deleteConfirm": "Smazat uložený klíč „{{name}}“? Tuto akci nelze vrátit zpět.",
+      "addToGeminiCli": "Přidat do Gemini CLI",
+      "geminiCliAdded": "Gemini CLI přidán",
+      "addToGeminiCliFailed": "Přidání do Gemini CLI selhalo: {{error}}"
     },
     "prefill": {
       "codexReady": "Nastavení APIKEY.FUN je vyplněno. Před přidáním do Codexu je zkontrolujte.",
@@ -9676,7 +9700,9 @@
       "conversations": "Konverzace",
       "turns": "Kola odpovědí",
       "coverage": "Přesné pokrytí",
-      "avgPerDay": "Prům. / aktivní den"
+      "avgPerDay": "Prům. / aktivní den",
+      "refCost": "Ekviv. cena API",
+      "cacheSavingsHint": "Mezipaměť ušetřila ~{{savings}}"
     },
     "estimated": {
       "notice": "{{turns}} kol bez surových metrik API bylo odhadnuto samostatně (nikdy se nepřičítá k přesnému součtu):"
@@ -9715,6 +9741,32 @@
     "errors": {
       "loadFailed": "Nepodařilo se načíst spotřebu tokenů: {{error}}",
       "syncFailed": "Prohledání spotřeby tokenů selhalo: {{error}}"
+    },
+    "heatmap": {
+      "title": "Mapa aktivity za 365 dní",
+      "activeDays": "{{count}} aktivních dní",
+      "peak": "Maximum {{date}} ({{tokens}})",
+      "less": "Méně",
+      "more": "Více"
+    },
+    "rehydrate": {
+      "title": "Hook obnovy paměti po kompakci",
+      "enabledBadge": "Zapnuto",
+      "disabledBadge": "Vypnuto",
+      "desc": "Po kompakci kontextu (CHECKPOINT) automaticky znovu vloží historii požadavků, upravené soubory a klíčová rozhodnutí.",
+      "noPython": "python3 chybí",
+      "enableBtn": "Zapnout hook",
+      "disableBtn": "Vypnout hook"
+    },
+    "audit": {
+      "title": "Audit kontextu a nástrojů",
+      "peakContext": "Špičkový kontext kroku",
+      "compactions": "{{count}} kompakcí",
+      "userPrompts": "Dotazy",
+      "toolCalls": "Volání nástrojů",
+      "fileOps": "Soubory Č/Z",
+      "commands": "Příkazy",
+      "subagents": "Podagenti"
     }
   },
   "t3code": {
@@ -9722,6 +9774,45 @@
       "title": "Nastavení účtů",
       "providers": "Účty poskytovatelů",
       "codexCatalogPending": "Klíče třetích stran čekající na synchronizaci modelů: {{count}}"
+    },
+    "commonSettings": {
+      "title": "Běžná nastavení",
+      "language": "Jazyk T3 Code"
+    },
+    "platformOrder": {
+      "title": "Pořadí platforem",
+      "hint": "Tažením úchytů změníte pořadí skupin platforem v přehledu účtů.",
+      "saveFailed": "Pořadí platforem se nepodařilo uložit. Zkuste to znovu. {{error}}"
+    },
+    "desktopPrivacy": {
+      "title": "Soukromí T3 Code",
+      "enableAll": "Zapnout vše",
+      "disableAll": "Zapnout režim soukromí",
+      "statusOn": "Zapnuto",
+      "statusOff": "Vypnuto",
+      "connection": "Po vypnutí telemetrie se telefon může dál spárovat a komunikovat s počítačem v reálném čase.",
+      "launchScope": "Telemetrie platí pro výchozí instanci spuštěnou z Cockpit Tools.",
+      "restartPending": "Nastavení uloženo. Změny telemetrie se projeví po restartu T3 Code.",
+      "environmentBlocked": "Vypnuto proměnnou prostředí {{variable}}.",
+      "policyBlocked": "Vypnuto zásadami systému.",
+      "linked": "Vypnutí analýzy využití vypne i trasování připojení.",
+      "statusPending": "Zatím neaktivní",
+      "doNotTrack": {
+        "label": "Nesledovat",
+        "description": "DO_NOT_TRACK pozastaví analytiku používání a sledování připojení. Vaše volby zůstanou uložené."
+      },
+      "analytics": {
+        "label": "Analýza využití",
+        "description": "Odesílá verzi aplikace, platformu a statistiky využití do T3 Code."
+      },
+      "tracing": {
+        "label": "Trasování připojení",
+        "description": "Odesílá časy připojení a typy chyb. Přepínač řídí i export OpenTelemetry."
+      },
+      "agentActivity": {
+        "label": "Oznámení o aktivitě agenta",
+        "description": "Odesílá názvy projektů, konverzací a modelů a stav úloh do T3 Connect. Vypnutí zastaví živé aktivity a oznámení při odpojení telefonu."
+      }
     },
     "nativeSettings": {
       "defaultModel": "Model pro nové chaty",

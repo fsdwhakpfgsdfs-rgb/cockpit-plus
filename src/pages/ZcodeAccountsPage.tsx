@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Plug, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   PlatformOverviewTabsHeader,
@@ -98,6 +99,23 @@ export function ZcodeAccountsPage() {
     try {
       await codexService.addCodexAccountFromZcode(account.id);
       await emitAccountsChanged({ platformId: 'codex', reason: 'import' });
+      page.setMessage({
+        text: t('common.shared.exposeToCodex.success', '已接入 Codex'),
+        tone: 'success',
+      });
+    } catch (error) {
+      const reason = String(error).replace(/^Error:\s*/, '');
+      const messages: Record<string, string> = {
+        ZCODE_START_PLAN_REQUIRED: t('zcode.exposeToCodex.startPlan'),
+        ZCODE_BIGMODEL_PROJECT_API_KEY_REQUIRED: t('zcode.exposeToCodex.projectKey'),
+        ZCODE_OAUTH_REAUTH_REQUIRED: t('zcode.exposeToCodex.signIn'),
+      };
+      page.setMessage({
+        text: t('common.shared.exposeToCodex.failed', '接入 Codex 失败：{{error}}', {
+          error: messages[reason] ?? reason,
+        }),
+        tone: 'error',
+      });
     } finally {
       setCodexBindingId(null);
     }
@@ -171,13 +189,16 @@ export function ZcodeAccountsPage() {
     renderCardActionExtra: (account) => account.auth_mode === 'api_key' || account.auth_mode === 'oauth' ? (
       <button
         type="button"
-        className="btn btn-secondary"
+        className="card-action-btn"
         disabled={codexBindingId !== null}
         aria-busy={codexBindingId === account.id}
-        title="仅在 Native Rust 网关中接入，不会复制 ZCode API Key 或 OAuth Token 到 Codex 配置"
+        aria-label={t('common.shared.exposeToCodex.action', '接入 Codex')}
+        title={t('zcode.exposeToCodex.title', '仅在 Native Rust 网关中接入，不会复制 ZCode API Key 或 OAuth Token 到 Codex 配置')}
         onClick={() => { void handleExposeToCodex(account); }}
       >
-        {codexBindingId === account.id ? '接入中…' : '接入 Codex 网关'}
+        {codexBindingId === account.id
+          ? <RefreshCw size={14} className="loading-spinner" aria-hidden="true" />
+          : <Plug size={14} aria-hidden="true" />}
       </button>
     ) : null,
     usagePrefix: 'zcode',

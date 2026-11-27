@@ -347,32 +347,7 @@ function legacyDefaultPlatformGroups(): PlatformLayoutGroup[] {
 }
 
 function defaultPlatformGroups(): PlatformLayoutGroup[] {
-  // 默认把同系平台合并成单个入口，避免侧边栏被十几个平台撑爆。
-  // 与 legacyDefaultPlatformGroups 保持一致，保证全新 profile 也是紧凑布局。
-  return [
-    {
-      id: DEFAULT_ANTIGRAVITY_GROUP_ID,
-      name: 'Antigravity',
-      platformIds: ['antigravity', 'antigravity_ide'],
-      defaultPlatformId: 'antigravity_ide',
-      iconKind: 'platform',
-      iconPlatformId: 'antigravity_ide',
-      childConfigs: [
-        { platformId: 'antigravity', name: 'Antigravity' },
-        { platformId: 'antigravity_ide', name: 'Antigravity IDE' },
-      ],
-    },
-    createDefaultCodexSuiteGroup(),
-    {
-      id: DEFAULT_CODEBUDDY_GROUP_ID,
-      name: 'CodeBuddy',
-      platformIds: ['codebuddy', 'codebuddy_cn', 'workbuddy'],
-      defaultPlatformId: 'codebuddy',
-      iconKind: 'platform',
-      iconPlatformId: 'codebuddy',
-    },
-    createDefaultTraeSuiteGroup(),
-  ];
+  return [createDefaultCodexSuiteGroup()];
 }
 
 // Only retire untouched generated groups. Renamed groups, custom icons, changed
@@ -1021,15 +996,6 @@ function normalizeHiddenEntryIds(
   );
 }
 
-/** 默认只在侧边栏展示 5 个高频平台入口，其余全部进入「更多平台」抽屉。 */
-const DEFAULT_SIDEBAR_ENTRY_IDS: PlatformLayoutEntryId[] = [
-  makeGroupEntryId('antigravity-suite'),
-  makeGroupEntryId('codex-suite'),
-  makePlatformEntryId('claude_manager'),
-  makePlatformEntryId('zed'),
-  makePlatformEntryId('github-copilot'),
-];
-
 function normalizeSidebarEntryIds(
   rawSidebarEntryIds: unknown,
   orderedEntryIds: PlatformLayoutEntryId[],
@@ -1054,9 +1020,7 @@ function normalizeSidebarEntryIds(
     return fallback;
   }
 
-  // 用户没有保存过侧边栏配置时，默认只展示白名单内的入口。
-  const whitelisted = orderedEntryIds.filter((entryId) => DEFAULT_SIDEBAR_ENTRY_IDS.includes(entryId));
-  return whitelisted.length > 0 ? whitelisted : orderedEntryIds;
+  return orderedEntryIds;
 }
 
 function derivePlatformOrderFromEntryOrder(

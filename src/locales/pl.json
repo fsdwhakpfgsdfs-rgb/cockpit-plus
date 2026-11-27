@@ -11,6 +11,7 @@
     "pathLabel": "Ścieżka uruchamiania",
     "switchAndCopy": "Przełącz i skopiuj",
     "sharedInstanceStart": "Zmień wspólne konto i uruchom",
+    "ideSharedAccountHint": "Od wersji 2.6 Antigravity IDE wszystkie instancje korzystają z jednej sesji Google. Zmiana konta w tym miejscu wpływa także na inne otwarte instancje.",
     "sharedInstanceHint": "Pozostałe instancje Antigravity pozostaną otwarte i mogą przejść na nowe konto.",
     "sharedInstanceRestart": "Ponownie uruchomi się tylko wybrana instancja.",
     "lastSharedAccount": "Ostatnio wybrane wspólne konto",
@@ -716,6 +717,12 @@
         "singleToken": "Pojedynczy przykład (Token)",
         "singleJson": "Pojedynczy przykład (JSON)",
         "batchJson": "Przykład wsadowy (JSON)"
+      },
+      "exposeToCodex": {
+        "action": "Połącz z Codex",
+        "inProgress": "Łączenie…",
+        "success": "Połączono z Codex",
+        "failed": "Nie udało się połączyć z Codex: {{error}}"
       }
     },
     "sessionSharing": {
@@ -2328,7 +2335,7 @@
     "noTags": "Brak tagów",
     "privacy": {
       "disable": "Wyłącz tryb prywatności",
-      "enable": "Włącz tryb prywatności"
+      "enable": "Wyłącz telemetrię"
     },
     "refreshAllFailed": "Masowe odświeżanie nie powiodło się: {{error}}",
     "refreshAllSuccess": "Wszystkie konta odświeżone",
@@ -6522,6 +6529,8 @@
       "instructionsBytes": "Instrukcje",
       "overloadRetry": "Ponowienia przy przeciążeniu",
       "overloadRecovery": "Czas odzyskiwania",
+      "historyRejectionTitle": "Niekompatybilny format historii",
+      "historyRejectionHint": "Upstream odrzucił format historii żądań. Zapisywane są tylko liczniki i flagi; treść rozmowy nie jest zapisywana.",
       "recordPayloads": "Zapisuj treść żądań",
       "recordPayloadsHint": "Domyślnie wyłączone. Ograniczone kopie żądań klienta i serwera są zapisywane lokalnie. Wyłączenie zatrzymuje nowe zapisy; zapisane treści można usunąć osobno.",
       "privacyHint": "Pola uwierzytelniania są maskowane, ale tajne dane w rozmowie mogą pozostać. Sprawdź przed kopiowaniem lub udostępnieniem.",
@@ -8216,7 +8225,13 @@
       "recovered": "{{model}} ponownie dostępny od {{time}}",
       "until": "{{model}} ograniczony w ostatnim teście, reset {{time}}",
       "unavailable": "{{model}} ograniczony w ostatnim teście",
-      "failed": "Ostatni test {{model}} nieudany"
+      "failed": "Ostatni test {{model}} nieudany",
+      "logUntil": "{{model}} ograniczony w logach klienta, reset {{time}}",
+      "logUnknownUntil": "Wykryto limit w logach klienta, reset {{time}}",
+      "logHits": "Trafienia w logach: {{count}}"
+    },
+    "exposeToCodex": {
+      "title": "Łączy przez bramę Native Rust bez kopiowania tokenu WorkBuddy"
     }
   },
   "minimaxCode": {
@@ -8428,6 +8443,12 @@
     },
     "instances": {
       "unsupported": "Wiele instancji ZCode jest dostępnych tylko w systemach macOS, Windows i Linux."
+    },
+    "exposeToCodex": {
+      "startPlan": "Odśwież limit ZCode, aby potwierdzić aktywny osobisty Z.ai Start Plan.",
+      "projectKey": "Połącz konto BigModel API Key za pomocą klucza projektu.",
+      "signIn": "Zaloguj się ponownie do ZCode i spróbuj jeszcze raz.",
+      "title": "Łączy przez bramę Native Rust bez kopiowania klucza API ZCode ani tokenu OAuth do konfiguracji Codex"
     }
   },
   "zed": {
@@ -8850,7 +8871,10 @@
       "deploySuccess": "Wdrożono do Codex: {{count}} modeli",
       "deployFailed": "Wdrożenie nie powiodło się: {{error}}",
       "useKey": "Użyj klucza",
-      "deleteConfirm": "Usunąć zapisany klucz „{{name}}”? Tej operacji nie można cofnąć."
+      "deleteConfirm": "Usunąć zapisany klucz „{{name}}”? Tej operacji nie można cofnąć.",
+      "addToGeminiCli": "Dodaj do Gemini CLI",
+      "geminiCliAdded": "Gemini CLI dodany",
+      "addToGeminiCliFailed": "Nie dodano do Gemini CLI: {{error}}"
     },
     "prefill": {
       "codexReady": "Uzupełniono ustawienia APIKEY.FUN. Sprawdź je przed dodaniem do Codex.",
@@ -9676,7 +9700,9 @@
       "conversations": "Rozmowy",
       "turns": "Tury odpowiedzi",
       "coverage": "Dokładne pokrycie",
-      "avgPerDay": "Śred. / aktywny dzień"
+      "avgPerDay": "Śred. / aktywny dzień",
+      "refCost": "Równowartość API",
+      "cacheSavingsHint": "Cache zaoszczędził ~{{savings}}"
     },
     "estimated": {
       "notice": "{{turns}} tur bez surowych danych API oszacowano osobno (nie są wliczane do dokładnej sumy):"
@@ -9715,6 +9741,32 @@
     "errors": {
       "loadFailed": "Nie udało się wczytać zużycia tokenów: {{error}}",
       "syncFailed": "Skanowanie zużycia tokenów nie powiodło się: {{error}}"
+    },
+    "heatmap": {
+      "title": "Mapa aktywności (365 dni)",
+      "activeDays": "{{count}} aktywnych dni",
+      "peak": "Szczyt {{date}} ({{tokens}})",
+      "less": "Mniej",
+      "more": "Więcej"
+    },
+    "rehydrate": {
+      "title": "Hook przywracania pamięci po kompakcji",
+      "enabledBadge": "Włączony",
+      "disabledBadge": "Wyłączony",
+      "desc": "Automatycznie wstrzykuje oś czasu żądań, edytowane pliki i kluczowe ustalenia po kompakcji kontekstu (CHECKPOINT).",
+      "noPython": "Brak python3",
+      "enableBtn": "Włącz hook",
+      "disableBtn": "Wyłącz hook"
+    },
+    "audit": {
+      "title": "Audyt kontekstu i wykonania",
+      "peakContext": "Szczytowy kontekst kroku",
+      "compactions": "{{count}} kompakcji",
+      "userPrompts": "Zapytania",
+      "toolCalls": "Narzędzia",
+      "fileOps": "Pliki O/Z",
+      "commands": "Polecenia",
+      "subagents": "Subagenci"
     }
   },
   "t3code": {
@@ -9722,6 +9774,45 @@
       "title": "Konfiguracja kont",
       "providers": "Konta dostawców",
       "codexCatalogPending": "Klucze zewnętrzne czekające na synchronizację modeli: {{count}}"
+    },
+    "commonSettings": {
+      "title": "Częste ustawienia",
+      "language": "Język T3 Code"
+    },
+    "platformOrder": {
+      "title": "Kolejność platform",
+      "hint": "Przeciągnij uchwyty, aby zmienić kolejność grup platform w przeglądzie kont.",
+      "saveFailed": "Nie udało się zapisać kolejności platform. Spróbuj ponownie. {{error}}"
+    },
+    "desktopPrivacy": {
+      "title": "Prywatność T3 Code",
+      "enableAll": "Włącz wszystko",
+      "disableAll": "Włącz tryb prywatności",
+      "statusOn": "Włączone",
+      "statusOff": "Wyłączone",
+      "connection": "Po wyłączeniu telemetrii telefon nadal można sparować i połączyć z komputerem w czasie rzeczywistym.",
+      "launchScope": "Telemetria dotyczy domyślnej instancji uruchamianej z Cockpit Tools.",
+      "restartPending": "Zapisano ustawienia. Uruchom ponownie T3 Code, aby zastosować zmiany telemetrii.",
+      "environmentBlocked": "Wyłączone przez zmienną środowiskową {{variable}}.",
+      "policyBlocked": "Wyłączone przez zasady systemowe.",
+      "linked": "Wyłączenie analizy użycia wyłącza także śledzenie połączeń.",
+      "statusPending": "Nieaktywne",
+      "doNotTrack": {
+        "label": "Nie śledź",
+        "description": "DO_NOT_TRACK wstrzymuje analizę użycia i śledzenie połączeń. Wybrane ustawienia pozostają zapisane."
+      },
+      "analytics": {
+        "label": "Analiza użycia",
+        "description": "Wysyła do T3 Code wersję aplikacji, platformę i statystyki użycia."
+      },
+      "tracing": {
+        "label": "Śledzenie połączeń",
+        "description": "Wysyła czasy połączeń i typy błędów. Steruje również eksportem OpenTelemetry."
+      },
+      "agentActivity": {
+        "label": "Powiadomienia o aktywności agenta",
+        "description": "Wysyła nazwy projektów i modeli, tytuły konwersacji i stany zadań do T3 Connect. Wyłączenie zatrzymuje aktywności na żywo i powiadomienia offline w telefonie."
+      }
     },
     "nativeSettings": {
       "defaultModel": "Model nowych czatów",

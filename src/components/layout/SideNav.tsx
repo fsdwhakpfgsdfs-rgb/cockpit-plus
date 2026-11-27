@@ -1,4 +1,4 @@
-import { Settings, Rocket, GaugeCircle, LayoutGrid, SlidersHorizontal, FileText, ChevronDown, PanelLeftClose, PanelLeftOpen, ShieldCheck, Server } from 'lucide-react';
+import { Server, Settings, Rocket, GaugeCircle, LayoutGrid, SlidersHorizontal, FileText, ChevronDown, PanelLeftClose, PanelLeftOpen, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
@@ -8,7 +8,6 @@ import { isMenuVisiblePlatform, PlatformId, PLATFORM_PAGE_MAP } from '../../type
 import {
   API_RELAY_LAYOUT_ENTRY_ID,
   ApiRelayLayoutEntryId,
-  makeGroupEntryId,
   makePlatformEntryId,
   resolveGroupChildIcon,
   resolveGroupChildName,
@@ -60,18 +59,6 @@ interface SideNavEntry {
   childIcon?: ReturnType<typeof resolveGroupChildIcon>;
 }
 
-/**
- * 侧边栏默认只展示这 5 个高频平台入口（外加始终可见的中转站）。
- * 其余平台依旧可用，只是收进「更多平台」抽屉里。
- */
-const CORE_SIDEBAR_ENTRY_IDS: ReadonlySet<string> = new Set<string>([
-  makeGroupEntryId('antigravity-suite'),
-  makeGroupEntryId('codex-suite'),
-  makePlatformEntryId('claude_manager'),
-  makePlatformEntryId('zed'),
-  makePlatformEntryId('github-copilot'),
-]);
-
 const PAGE_PLATFORM_MAP: Partial<Record<Page, PlatformId>> = {
   overview: 'antigravity',
   codex: 'codex',
@@ -101,7 +88,7 @@ const PAGE_PLATFORM_MAP: Partial<Record<Page, PlatformId>> = {
 const APP_DISPLAY_NAME =
   import.meta.env.VITE_COCKPIT_TOOLS_PROFILE === 'dev' ? 'Cockpit Tools Dev' : 'Cockpit Tools';
 
-const CLASSIC_NAV_MIN_SCALE = 0.5;
+const CLASSIC_NAV_MIN_SCALE = 0.85;
 const CLASSIC_NAV_SCALE_EPSILON = 0.004;
 const CLASSIC_NAV_SCROLL_EPSILON = 4;
 
@@ -313,7 +300,7 @@ export function SideNav({
   ]);
 
   const sidebarVisibleEntries = useMemo(() => orderedEntries.flatMap((entry) => {
-    const visible = entry.kind === 'api-relay' || CORE_SIDEBAR_ENTRY_IDS.has(entry.id)
+    const visible = entry.kind === 'api-relay' || sidebarSet.has(entry.id as PlatformLayoutEntryId)
       ? [entry]
       : [];
     const group = entry.group;
@@ -890,7 +877,6 @@ export function SideNav({
         ref={sideNavRef}
         style={classicScaleStyle}
         className={`side-nav${isClassicLayout ? ' side-nav-classic' : ''}${isClassicCollapsed ? ' side-nav-classic-collapsed' : ''}`}
-        data-nav-overflow-scroll={classicNavNeedsScroll ? '1' : '0'}
       >
       {shouldShowUpdateActionEntry && (
         <div className="side-nav-update-entry" ref={updateEntryRef}>
@@ -967,7 +953,7 @@ export function SideNav({
       </div>
 
       <div
-        className="nav-items"
+        className={`nav-items${isClassicLayout && !classicNavNeedsScroll ? ' nav-items-no-scroll' : ''}`}
         ref={navItemsRef}
       >
         <button
@@ -995,6 +981,7 @@ export function SideNav({
             <span className="tooltip">{t('nav.gateway', '统一网关')}</span>
           ) : null}
         </button>
+
 
         {sidebarMenuEntries.map((entry) => {
           const active = currentEntryId === entry.id && !shouldLockActiveOnMore;
@@ -1037,13 +1024,13 @@ export function SideNav({
         <button
           className={`nav-item ${page === '2fa' && !shouldLockActiveOnMore ? 'active' : ''}`}
           onClick={() => setPage('2fa')}
-          title={t('nav.2faManager', '2FA 管理')}
+          title={t('nav.2faManager', '2FA / MFA 管理')}
         >
           <ShieldCheck size={isClassicLayout ? classicMainIconSize : 20} />
           {showClassicLabels ? (
-            <span className="nav-item-text">{t('nav.2faManager', '2FA 管理')}</span>
+            <span className="nav-item-text">{t('nav.2faManager', '2FA / MFA 管理')}</span>
           ) : !isClassicLayout ? (
-            <span className="tooltip">{t('nav.2faManager', '2FA 管理')}</span>
+            <span className="tooltip">{t('nav.2faManager', '2FA / MFA 管理')}</span>
           ) : null}
         </button>
 
@@ -1073,6 +1060,7 @@ export function SideNav({
           ) : null}
         </button>
 
+
         {morePopoverContent && (
           typeof document !== 'undefined'
             ? createPortal(morePopoverContent, document.body)
@@ -1084,17 +1072,6 @@ export function SideNav({
       {isClassicLayout && (
         <div className="nav-bottom-actions" ref={bottomActionsRef}>
 
-
-          <button
-            className={`nav-item ${page === 'gateway' && !shouldLockActiveOnMore ? 'active' : ''}`}
-            onClick={() => setPage('gateway')}
-            title={t('nav.gateway', '统一网关')}
-          >
-            <Server size={isClassicLayout ? classicMainIconSize : 20} />
-            {showClassicLabels ? (
-              <span className="nav-item-text">{t('nav.gateway', '统一网关')}</span>
-            ) : null}
-          </button>
 
           <button
             className={`nav-item ${page === '2fa' && !shouldLockActiveOnMore ? 'active' : ''}`}
@@ -1134,15 +1111,6 @@ export function SideNav({
       {!isClassicLayout && (
         <>
           <div className="nav-footer">
-            <button
-              className={`nav-item ${page === 'gateway' && !shouldLockActiveOnMore ? 'active' : ''}`}
-              onClick={() => setPage('gateway')}
-              title={t('nav.gateway', '统一网关')}
-            >
-              <Server size={20} />
-              <span className="tooltip">{t('nav.gateway', '统一网关')}</span>
-            </button>
-
             <button
               className={`nav-item ${page === '2fa' && !shouldLockActiveOnMore ? 'active' : ''}`}
               onClick={() => setPage('2fa')}

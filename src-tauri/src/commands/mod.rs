@@ -1,5 +1,5 @@
-pub mod gateway;
 pub mod account;
+pub mod gateway;
 pub(crate) mod cli_launch_path;
 pub mod announcement;
 pub mod antigravity_legacy_instance;

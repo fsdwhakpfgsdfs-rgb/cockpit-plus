@@ -36,12 +36,17 @@ const presentationMod = loadHookModule(
   },
 );
 
-function loadOverview() {
+const orderKey = 'agtools.t3code.platform_order.v1';
+
+function loadOverview(readOrder = () => null as string | null) {
   const empty = () => null;
   return loadHookModule(new URL('./T3codeOverviewSection.tsx', import.meta.url), {
     'react-i18next': { useTranslation: () => ({ t: mockT }) },
     '../QuickSettingsPopover': { QuickSettingsPopover: empty },
+    './T3codeCommonSettings': { T3codeCommonSettings: empty },
+    '../../hooks/useDurableUiSetting': { useDurableUiSetting: readOrder },
     '../../utils/codexProviderPoolQuota': providerQuota,
+    '../../utils/durableUiSettings': { T3CODE_PLATFORM_ORDER_STORAGE_KEY: orderKey },
     '../../utils/platformMeta': { renderPlatformIcon: empty },
     './t3codePlatformRegistry': registryMod.exports,
     './t3codePresentation': presentationMod.exports,
@@ -65,8 +70,8 @@ test('adding an account offers only accounts that are not already linked to the 
     'workbuddy'), undefined);
 });
 
-test('Antigravity account picker shows reported quota groups and omits individual model quotas', () => {
-  const modal = loadHookModule(new URL('./T3codeModals.tsx', import.meta.url), {
+function loadAccountPicker() {
+  return loadHookModule(new URL('./T3codeModals.tsx', import.meta.url), {
     'react-dom': { createPortal: (view: ReactNode) => view },
     'react-i18next': { useTranslation: () => ({ t: mockT }) },
     '../ModalErrorMessage': { ModalErrorMessage: () => null, useModalErrorState: () => ({}) },
@@ -77,6 +82,10 @@ test('Antigravity account picker shows reported quota groups and omits individua
     './t3codePlatformRegistry': registryMod.exports,
     './t3codePresentation': presentationMod.exports,
   }, { document: { body: {} } });
+}
+
+test('Antigravity account picker shows reported quota groups and omits individual model quotas', () => {
+  const modal = loadAccountPicker();
   const models = [
     { id: 'gemini-flash-lite', label: 'Gemini Flash Lite', remainingPercent: 100 },
     { id: 'gemini-hydrogen-xhigh', label: 'Gemini Hydrogen (XHigh)', remainingPercent: 100 },
@@ -114,6 +123,43 @@ test('Antigravity account picker shows reported quota groups and omits individua
   assert.doesNotMatch(markup, /Gemini Flash Lite|Gemini Hydrogen|100%/);
 });
 
+test('Codex API Service is offered once and shows its cumulative quota in both account views', () => {
+  const windows = [
+    { id: '5h', label: '5h', remainingPercent: 199 },
+    { id: 'weekly', label: '7d', remainingPercent: 178 },
+  ];
+  const gatewayName = 'Codex API Service';
+  const account = { id: '__api_service__', isApiService: true, windows };
+  const linked: T3CodeProviderInstanceView = {
+    instanceId: 'codex', driver: 'codex', displayName: 'Codex', enabled: true,
+    isBuiltinDefault: true, boundAccountId: account.id, boundIsApiService: true, windows,
+  };
+  const shared = { gatewayName, maskAccountText: (value: string) => value, renderPlanBadge: () => null };
+  const picker = loadAccountPicker();
+  const renderPicker = (providerInstances: T3CodeProviderInstanceView[]) => renderToStaticMarkup(
+    picker.render(() => picker.exports.T3codeModals({
+      ...shared,
+      modal: { kind: 'add', driver: 'codex' },
+      workspace: { providerInstances, codexAccounts: [account] },
+      onClose: () => {},
+      onAdd: async () => {},
+      onRemove: async () => {},
+    })),
+  );
+  const overview = loadOverview();
+  const overviewMarkup = renderToStaticMarkup(overview.render(() => overview.exports.T3codeOverviewSection({
+    ...shared,
+    workspace: { providerInstances: [linked], codexAccounts: [account] },
+    providers: [{ instance: linked, status: { tone: 'ready' } }],
+  })));
+  for (const markup of [renderPicker([]), overviewMarkup]) {
+    assert.match(markup, /Codex API Service/);
+    assert.match(markup, /5h<.*199%/);
+    assert.match(markup, /周<.*178%/);
+  }
+  assert.doesNotMatch(renderPicker([linked]), /Codex API Service|199%|178%/);
+});
+
 type Control = {
   'aria-label'?: string;
   type?: string;
@@ -121,6 +167,9 @@ type Control = {
   children?: ReactNode;
   onClick?: () => void;
   onChange?: (event: { target: { value: string } }) => void;
+  items?: string[];
+  onReorder?: (active: string, target: string) => void;
+  message?: string | null;
 };
 
 function findControl(node: ReactNode, predicate: (props: Control) => boolean): Control | undefined {
@@ -164,7 +213,8 @@ test('overview keeps launch available when T3 Code is running or stopped', () =>
 });
 
 test('unified overview shows every linked account, moves the default to the top and exposes account actions', () => {
-  const overview = loadOverview();
+  let savedOrder: string | null = null;
+  const overview = loadOverview(() => savedOrder);
   const accounts = ['Primary', 'Alpha', 'Beta', 'Gamma', 'Delta', 'Unlinked'].map((displayName, index) => ({
     id: String(index),
     displayName,
@@ -205,6 +255,7 @@ test('unified overview shows every linked account, moves the default to the top 
   };
   const view = overview.render(() => overview.exports.T3codeOverviewSection(config));
   const markup = renderToStaticMarkup(view);
+  assert.match(markup, /aria-label="Codex".*aria-label="WorkBuddy"/);
   assert.match(markup, />Alpha<.*>Primary<.*>Beta<.*>Gamma<.*>Delta</);
   assert.doesNotMatch(markup, />Unlinked<|@example\.test|100%/);
   assert.match(markup, /primary@masked\.test.*>75</);
@@ -228,12 +279,79 @@ test('unified overview shows every linked account, moves the default to the top 
   assert.deepEqual(removed, ['workbuddy']);
   assert.equal(findControl(view, (control) => control['aria-label'] === 't3code.overview.setDefaultAccount · Alpha'), undefined);
 
+  savedOrder = JSON.stringify(['grok', 'workbuddy', 'retired', 'codex', 'workbuddy']);
+  const reordered = renderToStaticMarkup(overview.flush());
+  assert.match(reordered, /aria-label="WorkBuddy".*>Alpha<.*>Primary<.*aria-label="Codex"/);
+  assert.doesNotMatch(reordered, /aria-label="Grok"|aria-label="retired"/);
+
   const search = findControl(view, (control) => control.type === 'search')?.onChange;
   assert.ok(search);
   search({ target: { value: 'delta@example.test' } });
   const filtered = renderToStaticMarkup(overview.flush());
   assert.match(filtered, />Delta</);
   assert.doesNotMatch(filtered, />Primary<|>Alpha<|>Beta<|>Gamma</);
+});
+
+test('platform order dialog keeps changes in draft until saved and restores the written order on reopen', async () => {
+  let savedOrder: string | null = JSON.stringify(['codebuddy', 'retired', 'codebuddy']);
+  let failSave = true;
+  let closes = 0;
+  function openDialog() {
+    const dialog = loadHookModule(new URL('./T3codePlatformOrder.tsx', import.meta.url), {
+      'react-dom': { createPortal: (view: ReactNode) => view },
+      'react-i18next': { useTranslation: () => ({ t: mockT }) },
+      '../../hooks/useDurableUiSetting': { useDurableUiSetting: () => savedOrder },
+      '../../hooks/useEscClose': { useEscCloseTopmost: () => {} },
+      '../../hooks/useModalFocusTrap': { useModalFocusTrap: () => {} },
+      '../../hooks/useModalScrollLock': { useModalScrollLock: () => {} },
+      '../../utils/durableUiSettings': {
+        T3CODE_PLATFORM_ORDER_STORAGE_KEY: orderKey,
+        saveDurableUiSetting: async (key: string, value: string) => {
+          assert.equal(key, orderKey);
+          if (failSave) throw new Error('disk write failed');
+          savedOrder = value;
+        },
+      },
+      '../../utils/platformMeta': { renderPlatformIcon: () => null },
+      '../ModalErrorMessage': {
+        ModalErrorMessage: () => null,
+        useModalErrorState() {
+          const [message, setMessage] = dialog.hooks.useState(null);
+          return { message, clear: () => setMessage(null), report: setMessage, scrollKey: 0 };
+        },
+      },
+      '../SortableLayoutList': { SortableLayoutItem: () => null, SortableLayoutList: () => null },
+      './t3codePlatformRegistry': registryMod.exports,
+    }, { document: { body: {} } });
+    dialog.render(() => dialog.exports.T3codePlatformOrderDialog({ onClose: () => { closes += 1; } }));
+    const list = () => findControl(dialog.flush(), (control) => Boolean(control.onReorder))!;
+    const button = (label: string) => findControl(dialog.flush(), (control) => control.children === label)!;
+    return { dialog, list, button };
+  }
+
+  const canceled = openDialog();
+  const expected = ['codebuddy', 'antigravity', 'codex', 'claudeAgent', 'workbuddy',
+    'workbuddy_ai', 'codebuddy_cn', 'grok', 'minimaxcode'];
+  assert.deepEqual(Array.from(canceled.list().items!), expected);
+  canceled.list().onReorder!('minimaxcode', 'codebuddy');
+  assert.equal(canceled.list().items?.[0], 'minimaxcode');
+  canceled.button('common.cancel').onClick!();
+  canceled.dialog.unmount();
+  assert.equal(savedOrder, JSON.stringify(['codebuddy', 'retired', 'codebuddy']));
+  assert.equal(closes, 1);
+
+  const editor = openDialog();
+  assert.deepEqual(Array.from(editor.list().items!), expected);
+  editor.list().onReorder!('minimaxcode', 'codebuddy');
+  await editor.button('common.save').onClick!();
+  assert.ok(findControl(editor.dialog.flush(), (control) => control.message === 't3code.platformOrder.saveFailed'));
+  assert.equal(editor.list().items?.[0], 'minimaxcode');
+  assert.equal(closes, 1);
+  failSave = false;
+  await editor.button('common.save').onClick!();
+  assert.equal(closes, 2);
+  assert.equal(savedOrder, JSON.stringify(['minimaxcode', ...expected.slice(0, -1)]));
+  assert.equal(openDialog().list().items?.[0], 'minimaxcode');
 });
 
 test('account overview registry keeps the nine directly bindable platforms', () => {

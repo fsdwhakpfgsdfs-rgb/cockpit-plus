@@ -7,11 +7,13 @@ test('account linking reads and writes the registered T3 Code commands with thei
   const workspace = { t3InstanceId: '__default__', providerInstances: [{ instanceId: 'google-work' }] };
   const switched = { workspace, appliedLive: true, restartRequired: false, message: 'Switch successful' };
   const runtime = [{ instanceId: 'google-work', modelCount: 2, authStatus: 'authenticated' }];
+  const gatewayQuota = [{ id: '5h', label: '5h', remainingPercent: 199 }];
   const { exports: service } = loadHookModule(new URL('./t3codeService.ts', import.meta.url), {
     '@tauri-apps/api/core': {
       async invoke(command: string, args: unknown) {
         calls.push({ command, args });
         if (command === 'get_t3code_provider_runtime_status') return runtime;
+        if (command === 'get_t3code_api_service_quota') return gatewayQuota;
         if (command === 'switch_t3code_provider_instance_account'
           || command === 'promote_t3code_provider_account'
           || command === 'remove_t3code_provider_instance') return switched;
@@ -20,6 +22,7 @@ test('account linking reads and writes the registered T3 Code commands with thei
     },
   });
   assert.equal(await service.getT3codeProviderWorkspace(null), workspace);
+  assert.equal(await service.getT3codeApiServiceQuota(), gatewayQuota);
   assert.equal(await service.bindT3codeProviderInstanceAccount({
     t3InstanceId: 'work', providerInstanceId: 'google-work', driver: 'antigravity', cockpitAccountId: 'google-account',
   }), workspace);
@@ -44,6 +47,7 @@ test('account linking reads and writes the registered T3 Code commands with thei
   }), workspace);
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
     { command: 'get_t3code_provider_workspace', args: { t3InstanceId: null } },
+    { command: 'get_t3code_api_service_quota' },
     { command: 'bind_t3code_provider_instance_account', args: {
       t3InstanceId: 'work', providerInstanceId: 'google-work', driver: 'antigravity', cockpitAccountId: 'google-account',
     } },
@@ -66,5 +70,33 @@ test('account linking reads and writes the registered T3 Code commands with thei
       t3InstanceId: null, instanceId: 'google-work', cockpitAccountId: 'google-account',
     } },
     { command: 'refresh_t3code_provider_account_quota', args: { t3InstanceId: null, providerInstanceId: 'google-work' } },
+  ]);
+});
+
+
+test('T3 Code language updates use only client settings and notify other settings surfaces', async () => {
+  const calls: Array<{ command: string; args: unknown }> = [];
+  const changes: string[] = [];
+  const { exports: service } = loadHookModule(new URL('./t3codeService.ts', import.meta.url), {
+    '@tauri-apps/api/core': {
+      async invoke(command: string, args: { value?: string }) {
+        calls.push({ command, args });
+        return { language: args.value ?? 'en', clientConnected: false };
+      },
+    },
+  });
+  const unsubscribe = service.subscribeT3codeLanguage((language: string) => changes.push(language));
+
+  assert.equal((await service.getT3codeNativeLanguage()).language, 'en');
+  assert.equal((await service.updateT3codeNativeLanguage('zh')).language, 'zh');
+  await service.updateT3codeNativeSettings('language', 'ja');
+  unsubscribe();
+  await service.updateT3codeNativeLanguage('en');
+
+  assert.deepEqual(changes, ['zh', 'ja']);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.slice(0, 3))), [
+    { command: 'get_t3code_native_settings', args: { clientOnly: true } },
+    { command: 'update_t3code_native_settings', args: { field: 'language', value: 'zh', clientOnly: true } },
+    { command: 'update_t3code_native_settings', args: { field: 'language', value: 'ja' } },
   ]);
 });

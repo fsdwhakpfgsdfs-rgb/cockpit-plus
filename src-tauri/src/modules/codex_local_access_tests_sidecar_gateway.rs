@@ -1852,7 +1852,6 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
             id: "provider_gateway_deepseek".to_string(),
             label: "Provider Gateway: deepseek".to_string(),
             key: "agt_test".to_string(),
-            native_provider: None,
             provider_gateway: Some(deepseek_gateway.clone()),
             model_routing: None,
             inherit_account_pool: Some(false),
@@ -2042,7 +2041,7 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
     }
 
     #[test]
-    fn responses_bound_oauth_api_key_uses_local_access_pool() {
+    fn responses_bound_oauth_api_key_uses_compatibility_gateway_for_http_only_provider() {
         let mut account = CodexAccount::new_api_key(
             "local-account-id".to_string(),
             "relay@example.com".to_string(),
@@ -2055,16 +2054,23 @@ HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Internet Settings
         );
         account.api_wire_api = Some("responses".to_string());
         account.bound_oauth_account_id = Some("oauth-1".to_string());
+        account.api_supports_websockets = false;
 
-        assert!(!account_requires_provider_gateway(&account));
+        assert!(account_requires_provider_gateway(&account));
         assert!(!account_requires_bound_oauth_local_gateway(&account));
         assert!(is_local_access_eligible_account(&account));
 
         account.bound_oauth_use_local_gateway = true;
+        assert!(account_requires_provider_gateway(&account));
+        assert!(!account_requires_bound_oauth_local_gateway(&account));
+        assert!(is_local_access_eligible_account(&account));
+
+        account.api_supports_websockets = true;
         assert!(!account_requires_provider_gateway(&account));
         assert!(!account_requires_bound_oauth_local_gateway(&account));
         assert!(is_local_access_eligible_account(&account));
 
+        account.api_supports_websockets = false;
         account.bound_oauth_account_id = None;
         assert!(!account_requires_provider_gateway(&account));
         assert!(!account_requires_bound_oauth_local_gateway(&account));
@@ -3852,7 +3858,6 @@ http_headers = { "x-cockpit-instance-id" = "default" }
             id: "provider_gateway_deepseek".to_string(),
             label: "Provider Gateway: DeepSeek".to_string(),
             key: "deepseek-local-key".to_string(),
-            native_provider: None,
             provider_gateway: Some(CodexLocalAccessProviderGateway {
         auth_scheme: None,
                 base_url: "https://api.deepseek.com/v1".to_string(),

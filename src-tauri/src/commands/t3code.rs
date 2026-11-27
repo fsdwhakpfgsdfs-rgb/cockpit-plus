@@ -2,6 +2,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::models::t3code::{
     T3CodeAccount, T3CodeProviderRuntimeView, T3CodeProviderSwitchView, T3CodeProviderWorkspaceView,
+    T3CodeQuotaWindowView,
 };
 use crate::modules::{
     logger, process, t3code_account, t3code_app_injection, t3code_instance,
@@ -197,6 +198,11 @@ pub async fn get_t3code_provider_workspace(
 }
 
 #[tauri::command]
+pub async fn get_t3code_api_service_quota() -> Option<Vec<T3CodeQuotaWindowView>> {
+    crate::modules::codex_app_injection::read_t3code_api_service_quota().await
+}
+
+#[tauri::command]
 pub fn t3code_sync_provider_launch_paths(t3_instance_id: Option<String>) {
     t3code_provider_bindings::launch_paths::schedule_sync(t3_instance_id.as_deref());
 }
@@ -310,14 +316,31 @@ pub async fn refresh_t3code_provider_account_quota(
 }
 
 #[tauri::command]
-pub async fn get_t3code_native_settings() -> Result<serde_json::Value, String> {
-    crate::modules::t3code_native_settings::read().await
+pub async fn get_t3code_native_settings(
+    client_only: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    crate::modules::t3code_native_settings::read(client_only.unwrap_or_default()).await
 }
 
 #[tauri::command]
 pub async fn update_t3code_native_settings(
     field: String,
     value: serde_json::Value,
+    client_only: Option<bool>,
 ) -> Result<serde_json::Value, String> {
-    crate::modules::t3code_native_settings::update(&field, value).await
+    crate::modules::t3code_native_settings::update(&field, value, client_only.unwrap_or_default())
+        .await
+}
+
+#[tauri::command]
+pub async fn get_t3code_privacy_settings(
+) -> Result<crate::modules::t3code_privacy::PrivacyState, String> {
+    crate::modules::t3code_privacy::read().await
+}
+
+#[tauri::command]
+pub async fn update_t3code_privacy_settings(
+    patch: crate::modules::t3code_privacy::PrivacyPatch,
+) -> Result<crate::modules::t3code_privacy::PrivacyState, String> {
+    crate::modules::t3code_privacy::update(patch).await
 }

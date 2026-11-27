@@ -1,5 +1,5 @@
-pub mod unified_gateway;
 pub mod account;
+pub mod unified_gateway;
 pub(crate) mod account_groups_store;
 pub mod account_index_repair;
 #[path = "../../../crates/cockpit-core/src/modules/account_query_identity.rs"]
@@ -20,6 +20,7 @@ pub(crate) mod provider_index_maintenance;
 pub(crate) mod checkin_state_store;
 pub(crate) mod usage_rollup;
 pub mod announcement;
+pub mod apikey_fun_gemini_cli;
 pub mod apikey_fun_links;
 pub(crate) mod apikey_fun_vault;
 pub(crate) mod antigravity_composer_status;
@@ -203,6 +204,7 @@ pub mod sync_settings;
 pub mod t3code_account;
 pub mod t3code_app_injection;
 pub mod t3code_native_settings;
+pub mod t3code_privacy;
 pub mod t3code_instance;
 pub mod t3code_provider_bindings;
 #[cfg(test)]
@@ -245,6 +247,7 @@ pub(crate) mod workbuddy_auth_crypto;
 pub mod workbuddy_auto_checkin;
 pub mod workbuddy_instance;
 pub mod workbuddy_oauth;
+pub mod workbuddy_log_limits;
 pub mod workbuddy_model_probe;
 pub mod workbuddy_session_transfer;
 mod workbuddy_workspace_rebind;

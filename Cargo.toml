@@ -56,15 +56,11 @@ muda = { path = "vendor/muda" }
 tao = { path = "vendor/tao" }
 
 [profile.dev]
-debug = 0
-codegen-units = 16
-incremental = false
+debug = "line-tables-only"
 
 [profile.dev.package.cockpit-tools]
-debug = 0
-opt-level = 0
-incremental = false
-split-debuginfo = "off"
+# Keep macOS rebuilds from retaining a fresh set of .rcgu.o files (rust-lang/rust#161824).
+split-debuginfo = "packed"
 
 [profile.ci]
 inherits = "release"

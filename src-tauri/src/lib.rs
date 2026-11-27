@@ -645,17 +645,15 @@ pub fn run() {
                 }
             });
 
-            // 统一网关：随应用启动
-            {
-                let gw_handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    let _ = &gw_handle;
-                    match modules::unified_gateway::start() {
-                        Ok(port) => println!("[gateway] auto-started on 127.0.0.1:{port}"),
-                        Err(e) => eprintln!("[gateway] auto-start failed: {e}"),
-                    }
-                });
-            }
+            // 统一网关开机自启（端口来自 config.json，默认 8787）
+            std::thread::spawn(|| {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                match modules::unified_gateway::start() {
+                    Ok(port) => eprintln!("[unified-gateway] listening on {port}"),
+                    Err(e) => eprintln!("[unified-gateway] start failed: {e}"),
+                }
+            });
+
             commands::codex_instance::start_mixed_model_gateway_watchdog(app.handle().clone());
 
             {
@@ -923,10 +921,6 @@ pub fn run() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
-            // Unified Gateway
-            commands::gateway::gateway_start,
-            commands::gateway::gateway_status,
-            commands::gateway::gateway_base_url,
             commands::codex_pelican::codex_pelican_start,
             commands::codex_pelican::codex_pelican_retry,
             commands::codex_pelican::codex_pelican_active,
@@ -1064,6 +1058,7 @@ pub fn run() {
             commands::system::schedule_apikey_fun_recovery_checkpoint,
             commands::system::restore_apikey_fun_vault,
             commands::system::export_legacy_apikey_fun_vault,
+            commands::system::apply_apikey_fun_gemini_cli_env,
             commands::system::delete_auto_backup_file,
             commands::system::cleanup_auto_backup_files,
             commands::system::open_auto_backup_dir,
@@ -1621,6 +1616,7 @@ pub fn run() {
             commands::workbuddy::run_workbuddy_auto_checkin_now,
             commands::workbuddy::probe_workbuddy_model,
             commands::workbuddy::fetch_workbuddy_cloud_models,
+            modules::workbuddy_log_limits::scan_workbuddy_log_limits,
             commands::workbuddy::probe_codebuddy_cn_model,
             commands::workbuddy::fetch_codebuddy_cn_cloud_models,
             // MiniMax Code Commands
@@ -1777,7 +1773,10 @@ pub fn run() {
             commands::t3code::get_t3code_accounts_index_path,
             commands::t3code::get_t3code_native_settings,
             commands::t3code::update_t3code_native_settings,
+            commands::t3code::get_t3code_privacy_settings,
+            commands::t3code::update_t3code_privacy_settings,
             commands::t3code::get_t3code_provider_workspace,
+            commands::t3code::get_t3code_api_service_quota,
             commands::t3code::t3code_sync_provider_launch_paths,
             commands::t3code::t3code_install_antigravity_runtime,
             commands::t3code::get_t3code_provider_runtime_status,
@@ -2000,6 +1999,10 @@ pub fn run() {
             commands::antigravity_token_usage::antigravity_get_conversation_token_detail,
             commands::antigravity_token_usage::antigravity_get_token_usage_settings,
             commands::antigravity_token_usage::antigravity_set_token_usage_data_dir,
+            commands::antigravity_token_usage::antigravity_set_rehydrate_enabled,
+            commands::gateway::gateway_start,
+            commands::gateway::gateway_status,
+            commands::gateway::gateway_base_url,
         ])
         .build(context)
         .expect("error while building tauri application");

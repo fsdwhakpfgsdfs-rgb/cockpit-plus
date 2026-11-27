@@ -350,7 +350,11 @@ fn native_report_model_unavailable(report: &native_contract::RequestReport) -> b
 
 impl NativeHostBridge {
     fn record_failure_cooldown(&self, report: &native_contract::RequestReport) {
-        if report.official_registration_id.is_some() {
+        if report.official_registration_id.is_some()
+            && !report
+                .account_id
+                .starts_with(codex_account::CHATGPT_PLAN_ACCOUNT_PREFIX)
+        {
             return;
         }
         if self.cooling_disabled.load(Ordering::Acquire) {
@@ -785,7 +789,39 @@ impl native_contract::Host for NativeHostBridge {
         model: &'a str,
         failure: &'a native_contract::OfficialFallbackFailure,
     ) -> futures_util::future::BoxFuture<'a, ()> {
-        Box::pin(native_observe_official_rejection(route, model, failure))
+        Box::pin(async move {
+            if route
+                .account_id
+                .starts_with(codex_account::CHATGPT_PLAN_ACCOUNT_PREFIX)
+            {
+                if failure.trigger_stage == "upstream" {
+                    if failure.status == 429
+                        && matches!(
+                            failure.code.as_str(),
+                            "subscription_sharing_usage_limit_exceeded"
+                                | "usage_limit_reached"
+                                | "insufficient_quota"
+                                | "quota_exceeded"
+                        )
+                    {
+                        self.route_quota_exhausted(route, failure.status, failure.retry_after)
+                            .await;
+                    } else {
+                        self.route_failed_with_context(
+                            &route.account_id,
+                            model,
+                            failure.status,
+                            failure.retry_after,
+                            matches!(failure.status, 401 | 403),
+                            failure.message.as_deref(),
+                        )
+                        .await;
+                    }
+                }
+                return;
+            }
+            native_observe_official_rejection(route, model, failure).await;
+        })
     }
     fn fallback_to_local<'a>(
         &'a self,
@@ -1033,7 +1069,11 @@ impl native_contract::Host for NativeHostBridge {
         message: Option<&'a str>,
     ) -> futures_util::future::BoxFuture<'a, ()> {
         Box::pin(async move {
-            if route.official_registration_id.is_some() {
+            if route.official_registration_id.is_some()
+                && !route
+                    .account_id
+                    .starts_with(codex_account::CHATGPT_PLAN_ACCOUNT_PREFIX)
+            {
                 native_observe_official_failure(route, model, status, message, retry_after).await;
                 return;
             }
@@ -1605,10 +1645,10 @@ impl native_contract::Host for NativeHostBridge {
                     first_response_ms: diagnostics.and_then(|d| d.first_response_ms),
                     output_generation_ms: diagnostics.and_then(|d| d.output_generation_ms),
                     input_text_characters: report.input_text_characters,
-                    service_tier: report
-                        .response_service_tier
-                        .as_deref()
-                        .or(report.requested_service_tier.as_deref()),
+                    service_tier: effective_billing_service_tier(
+                        report.requested_service_tier.as_deref(),
+                        report.response_service_tier.as_deref(),
+                    ),
                     requested_service_tier: report.requested_service_tier.as_deref(),
                     response_service_tier: report.response_service_tier.as_deref(),
                     reasoning_effort: report.reasoning_effort.as_deref(),

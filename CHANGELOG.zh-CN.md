@@ -10,6 +10,67 @@
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-11-26
+
+### 新增
+
+- **T3 Code** 账号总览新增「常用设置」，可切换客户端语言、调整隐私选项和拖动排列平台分组。重启 Cockpit Tools 后仍会保留自定义顺序。
+- **T3 Code** 隐私设置支持单独开关禁止追踪、产品使用分析、连接追踪和 Agent 活动推送，也支持一键开启或关闭遥测。关闭遥测后，手机仍可配对并实时通信。禁止追踪、使用分析和连接追踪的选择适用于由 Cockpit Tools 启动的默认实例。
+- **Codex 会话用量**有本地 API 服务指标时显示首字响应时间和输出速度（TPS），「今天」的趋势按小时统计。 [#3313](https://github.com/jlcodes99/cockpit-tools/issues/3313)
+- **Codex API 服务**的请求详情可查看已记录的历史拒绝诊断，包括条目数量以及压缩和恢复信息。 [#3141](https://github.com/jlcodes99/cockpit-tools/issues/3141) · [#3295](https://github.com/jlcodes99/cockpit-tools/pull/3295)
+- **Antigravity 会话用量**新增 API 等价参考费用、缓存节省、365 天活跃热力图及上下文与工具审计。可选钩子可在压缩后回灌近期上下文。
+- **WorkBuddy** 额度卡片新增客户端日志来源，与主动探测一起展示限流信息。有数据时显示受影响的账号、模型及恢复时间。 [#3214](https://github.com/jlcodes99/cockpit-tools/issues/3214)
+- **Codex 模型供应商**新增 TrustedRouter 预设。 [#3300](https://github.com/jlcodes99/cockpit-tools/pull/3300)
+
+### 修复
+- **Codex API 服务**在同一对话跨供应商切模型时，可用完整输入或有效检查点继续压缩上下文。 [#3319](https://github.com/jlcodes99/cockpit-tools/issues/3319)
+- **Codex 自动切号**在新额度成功保存后触发评估，冷启动后后台服务暂未识别到运行中的 Codex 实例时也可评估。 [#3321](https://github.com/jlcodes99/cockpit-tools/issues/3321)
+- **Codex API 服务**重试 HTTP 请求、重新建立 WebSocket 连接及执行 OAuth 生图请求时，使用当前尝试的准备时限。持续重试覆盖更多上游满载场景，包括长会话和压缩请求。 [#3304](https://github.com/jlcodes99/cockpit-tools/issues/3304) · [#3320](https://github.com/jlcodes99/cockpit-tools/pull/3320)
+- **Codex API 服务**补齐 ChatGPT OAuth 批量生图的请求张数。旧版 `/v1/responses/compact` 入口兼容当前上游压缩协议，压缩后可继续对话。
+- **Codex API 服务**保留 Responses 支持的 `include` 字段，Chat 流式回复保留各自独立的输出项。Claude Code 可通过网关发现、调用并续用延迟加载工具。文献检索被拒绝时，可用账号仍可用于其他请求。
+- **Codex API 服务**续聊保留 IDE 和终端上下文。切换窗口时，无 `call_id` 的宿主消息可在受影响的路由上继续走 HTTP 续聊。 [#3308](https://github.com/jlcodes99/cockpit-tools/issues/3308)
+- **Codex API 服务**在系统代理探测较慢或繁忙时避免集中返回 503 和 504，并记录路由决策供排查。 [#3310](https://github.com/jlcodes99/cockpit-tools/issues/3310)
+- **Codex API 服务**在 ChatGPT OAuth 回报通用档位时，按实际请求的 Fast 或 Ultrafast 档位估算参考费用。 [#3279](https://github.com/jlcodes99/cockpit-tools/issues/3279)
+- **Antigravity 唤醒**兼容官方 2.35.x 语言服务器的启动方式，恢复 Flash 唤醒，并将上游升级提示记录为失败。 [#3303](https://github.com/jlcodes99/cockpit-tools/issues/3303)
+- **Antigravity 切号**遇到导入的 OAuth 凭据缺少新版桌面客户端所需权限时，会记录诊断提示。 [#3288](https://github.com/jlcodes99/cockpit-tools/issues/3288)
+- **Antigravity IDE** 切换模型后继续显示上下文和速度读数，并改进正文速度和流式速度的统计。
+- **Codex 切号与项目修复**保留 Codex Desktop 26.1120 及以上版本的工作区分区和会话归属。 [#3221](https://github.com/jlcodes99/cockpit-tools/issues/3221)
+- **Codex 多开实例**的内置浏览器应用该实例自定义的内网绕过规则。 [#3089](https://github.com/jlcodes99/cockpit-tools/issues/3089)
+- **Windows 上的 Claude Desktop** 缺少授权导出时，可使用匹配的已登录资料刷新额度，支持客户端运行期间刷新。 [#3318](https://github.com/jlcodes99/cockpit-tools/issues/3318)
+- **macOS 上的 Qoder** 等待钥匙串授权，同一次查询避免重复弹窗。刷新额度后，两处时间显示会同步更新。 [#3317](https://github.com/jlcodes99/cockpit-tools/issues/3317) · [#3305](https://github.com/jlcodes99/cockpit-tools/pull/3305)
+- **WorkBuddy → Codex** 已接入账号可正常刷新额度，也可通过原生 API 服务发送文本请求。直接启动 Codex 时会提示支持的接入方式。 [#3298](https://github.com/jlcodes99/cockpit-tools/issues/3298) · [#3301](https://github.com/jlcodes99/cockpit-tools/pull/3301)
+- **ZCode** 切换 BigModel OAuth 账号时正确选中当前供应方和套餐。 [#3296](https://github.com/jlcodes99/cockpit-tools/pull/3296)
+
+### 变更
+- **T3 Code** 账号总览对齐账号、额度、连接状态和操作列，并优化添加账号与设置弹框的布局。
+- **侧边栏**在空间不足时滚动，平台条目保持可读。平台排序和常驻项仍可在「更多 → 管理平台布局」调整。 [#3292](https://github.com/jlcodes99/cockpit-tools/issues/3292)
+- **WorkBuddy 与 ZCode** 的「接入 Codex」改用紧凑图标，悬停可查看完整操作名称。
+
+## [1.5.1] - 2026-11-26
+
+### 新增
+
+- **中转站 → Gemini CLI**：选择已保存的密钥和它支持的 Gemini 模型，预览后即可写入本机并切换到 API Key 认证。写入时保留其他配置项和已有备份。 [#3104](https://github.com/jlcodes99/cockpit-tools/issues/3104)
+- **T3 Code** 的「添加账号」可选择 Cockpit 的 Codex API 服务。账号选择器和总览都显示账号池合计的 5 小时、每周剩余额度，多账号合计超过 100% 时显示实际数值。
+- **模型供应商**新增 TeamoRouter 预设，适用于 Codex、Claude Code 和 Claude Desktop。 [#3280](https://github.com/jlcodes99/cockpit-tools/pull/3280)
+- **ZCode → Codex**：已启用个人 Start Plan 的 Z.ai OAuth 账号可接入原生网关。套餐信息缺失时会提示刷新额度，BigModel Coding / Team Plan 则提示使用项目 API Key 接入。 [#3272](https://github.com/jlcodes99/cockpit-tools/pull/3272)
+- **WorkBuddy → Codex**：可用已保存的账号发送独立的纯文本请求。网关收到完整回复后返回文本，并在请求完成或取消后尝试清理临时会话。 [#3282](https://github.com/jlcodes99/cockpit-tools/pull/3282)
+
+### 变更
+
+- **Antigravity IDE** 的切号和实例启动弹框会提示，IDE 2.6 及以上版本的所有实例共用 Google 登录。 [#3232](https://github.com/jlcodes99/cockpit-tools/issues/3232)
+- **Antigravity** 的 Gemini 4 Argon 模型改用 Gemini 共享额度，保留已有的自定义模型分组。自动切号、Antigravity 和 T3 Code 的输入栏都会忽略缓存中已停用的 Argon 额度，避免旧的 0% 影响显示或切号。 [#3271](https://github.com/jlcodes99/cockpit-tools/pull/3271)
+
+### 修复
+
+- **Codex 原生 API 服务**在新版认证（官方第三方授权）模式下完整识别 `response.failed`（含 `server_error` / `rate_limit_exceeded`）、扁平 SSE `error` 事件及 `reasoning.summary = "none"` 握手流中的 Subscription Sharing 额度耗尽错误，自动将该官方授权标记为冷却并切换到账号池中的其他可用账号，避免流中途断开与任务卡住。 [#2866](https://github.com/jlcodes99/cockpit-tools/issues/2866)
+- **Codex 原生 API 服务**将会话续接检查点收敛为有界自包含热缓存，移除会无限增长的持久拆块历史归档表；启动时若检测到超大旧版 `identity.sqlite` 会自动保留活跃身份映射与最近会话并无损瘦身重建。后台维护在有活跃请求或前台占用连接时自动让路并限制单批耗时，服务运行期间不触发整库压缩。 [#3044](https://github.com/jlcodes99/cockpit-tools/issues/3044) · [#3289](https://github.com/jlcodes99/cockpit-tools/pull/3289)
+- **WorkBuddy** 刷新未保存域名的账号时会使用官方认证端点的域名，已有企业域名仍优先使用。 [#2979](https://github.com/jlcodes99/cockpit-tools/issues/2979)
+- macOS 的 **Claude Desktop** 账号页快捷设置现可直接开启「切号时同步 Code 会话列表」，与通用设置共用同一开关。 [#3102](https://github.com/jlcodes99/cockpit-tools/issues/3102)
+- 在**「添加至 API 服务」**中，仅普通 ChatGPT 账号显示额度。API 密钥、中转站和 Grok 账号仍显示请求次数，隐藏容易误读的「5h 0%」或「共享额度 0%」。
+- **macOS 上的 Codex Desktop 26.1120** 可再次加载原生下一步预测。 [#3278](https://github.com/jlcodes99/cockpit-tools/issues/3278)
+- **Codex SSH** 能读取新版桌面端保存的连接和自动连接设置。冷启动时，即使主机已经重连，也能核验切换后的账号。 [#3286](https://github.com/jlcodes99/cockpit-tools/pull/3286)
+
 ## [1.5.0] - 2026-11-25
 
 ### 重磅更新 · T3 Code 账号管理

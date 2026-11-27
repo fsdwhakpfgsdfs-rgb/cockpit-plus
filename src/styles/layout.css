@@ -1096,23 +1096,9 @@ html[data-theme="dark"] .side-nav-classic-handle:hover {
   }
 }
 
-
 /* gateway-nav-scroll-fix */
-/* 侧边栏平台列表始终可滚动，保证「更多平台」抽屉与底部工具按钮可见 */
-.side-nav .nav-items {
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-.side-nav .nav-items::-webkit-scrollbar {
-  width: 6px;
-}
-.side-nav .nav-items::-webkit-scrollbar-thumb {
-  background: rgba(120, 120, 140, 0.35);
-  border-radius: 3px;
-}
-.side-nav .nav-items::-webkit-scrollbar-track {
-  background: transparent;
-}
-.side-nav.side-nav-classic .nav-items.nav-items-no-scroll {
-  overflow-y: auto;
-}
+.side-nav .nav-items { overflow-y: auto; }
+.side-nav .nav-items::-webkit-scrollbar { width: 6px; }
+.side-nav .nav-items::-webkit-scrollbar-track { background: transparent; }
+.side-nav .nav-items::-webkit-scrollbar-thumb { background: rgba(140,150,165,.35); border-radius: 3px; }
+.side-nav .nav-items::-webkit-scrollbar-thumb:hover { background: rgba(140,150,165,.55); }
