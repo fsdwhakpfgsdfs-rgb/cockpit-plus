@@ -343,3 +343,40 @@
   flex: 1;
   min-width: 0;
 }
+
+/* 按账号覆盖代理 */
+.gw-accproxies {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.gw-accproxy-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.gw-accproxy-name {
+  width: 190px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gw-accproxy-name code {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted, #6b7280);
+  flex-shrink: 0;
+}
+.gw-accproxy-row .gw-input {
+  flex: 1;
+  min-width: 0;
+}

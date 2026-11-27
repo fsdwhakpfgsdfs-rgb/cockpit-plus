@@ -13,6 +13,7 @@ interface GatewayStatusResp {
   quotaCooldownSecs?: number;
   proxy?: string | null;
   platformProxies?: Record<string, string>;
+  accountProxies?: Record<string, string>;
   keys: { id: string; name: string; enabled: boolean; keyMasked: string }[];
   pool: {
     total: number;
@@ -79,7 +80,7 @@ export default function GatewayPage() {
   const [port, setPort] = useState(8787);
 
   const [cfgOpen, setCfgOpen] = useState(false);
-  const [cfgForm, setCfgForm] = useState({ port: 8787, strategy: 'round_robin', timeoutSecs: 180, maxAttempts: 3, sessionAffinity: true, quotaCooldownSecs: 300, proxy: '', platformProxies: {} as Record<string, string> });
+  const [cfgForm, setCfgForm] = useState({ port: 8787, strategy: 'round_robin', timeoutSecs: 180, maxAttempts: 3, sessionAffinity: true, quotaCooldownSecs: 300, proxy: '', platformProxies: {} as Record<string, string>, accountProxies: {} as Record<string, string> });
 
   const [keyOpen, setKeyOpen] = useState(false);
   const [keyName, setKeyName] = useState('');
@@ -202,6 +203,7 @@ export default function GatewayPage() {
           quota_cooldown_secs: cfgForm.quotaCooldownSecs,
           proxy: cfgForm.proxy.trim() ? cfgForm.proxy.trim() : null,
           platform_proxies: cfgForm.platformProxies,
+          account_proxies: cfgForm.accountProxies,
         }),
       });
       const j = await r.json();
@@ -363,6 +365,7 @@ export default function GatewayPage() {
                   quotaCooldownSecs: status.quotaCooldownSecs ?? 300,
                   proxy: status.proxy ?? '',
                   platformProxies: status.platformProxies ?? {},
+                  accountProxies: status.accountProxies ?? {},
                 });
               }
               setCfgOpen(true);
@@ -662,6 +665,26 @@ export default function GatewayPage() {
                 <label key="github-copilot" className="gw-platproxy-row"><code>github-copilot</code><input className="gw-input" value={cfgForm.platformProxies["github-copilot"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "github-copilot": e.target.value } })} placeholder="http://127.0.0.1:10808" /></label>
               </div>
             </div>
+
+              <div className="gw-field">
+                <span>按账号覆盖代理（优先级最高；留空 = 直连；不填 = 沿用平台/全局）</span>
+                <div className="gw-accproxies">
+                  {(status?.pool.accounts ?? []).map((acc) => (
+                    <label key={acc.id} className="gw-accproxy-row">
+                      <span className="gw-accproxy-name">
+                        {acc.name}
+                        <code>{acc.platform}</code>
+                      </span>
+                      <input
+                        className="gw-input"
+                        value={cfgForm.accountProxies[acc.id] ?? ''} 
+                        onChange={(e) => setCfgForm({ ...cfgForm, accountProxies: { ...cfgForm.accountProxies, [acc.id]: e.target.value } })}
+                        placeholder="http://127.0.0.1:10808"
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
             <label className="gw-field">
               <span>额度耗尽冷却（秒）</span>
               <input className="gw-input" type="number" value={cfgForm.quotaCooldownSecs} onChange={(e) => setCfgForm({ ...cfgForm, quotaCooldownSecs: Number(e.target.value) || 300 })} />
