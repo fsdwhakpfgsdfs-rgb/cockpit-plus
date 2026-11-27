@@ -50,6 +50,10 @@ pub struct GatewayConfig {
     /// 出站代理，例如 http://127.0.0.1:10808；为空则直连
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy: Option<String>,
+    /// 按平台覆盖默认代理。键为 platform（codebuddy_cn / workbuddy / codex / claude ...）
+    /// 值为空字符串表示该平台强制直连；未出现的平台沿用 proxy。
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub platform_proxies: std::collections::HashMap<String, String>,
     /// 额度耗尽后的冷却秒数（期间不再被选中）
     #[serde(default = "def_cooldown")]
     pub quota_cooldown_secs: u64,
@@ -77,6 +81,9 @@ pub struct ManualProvider {
     /// openai | anthropic，决定鉴权头
     #[serde(default = "def_openai")]
     pub protocol: String,
+    /// 该供应商单独使用的代理；为空则沿用平台/全局默认
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<String>,
 }
 
 fn def_openai() -> String {
@@ -121,6 +128,7 @@ impl Default for GatewayConfig {
             max_attempts: def_max_attempts(),
             providers: Vec::new(),
             proxy: None,
+            platform_proxies: std::collections::HashMap::new(),
             quota_cooldown_secs: def_cooldown(),
         }
     }
@@ -172,6 +180,8 @@ pub struct GatewayState {
     pub pool_cache: Mutex<Option<(Instant, Vec<PoolAccount>)>>,
     /// 额度耗尽账号的冷却截止时间
     pub cooldown: Mutex<HashMap<String, Instant>>,
+    /// 按 (proxy, timeout) 缓存 reqwest Client，避免每次请求重建 TLS
+    pub clients: Mutex<HashMap<String, reqwest::Client>>,
 }
 
 impl GatewayState {
@@ -200,6 +210,7 @@ impl GatewayState {
             config_path,
             pool_cache: Mutex::new(None),
             cooldown: Mutex::new(HashMap::new()),
+            clients: Mutex::new(HashMap::new()),
         })
     }
 
@@ -275,6 +286,9 @@ struct PoolAccount {
     quota_left: Option<i32>,
     /// 账号被封禁 / 额度彻底耗尽
     exhausted: bool,
+    proxy: None,
+    /// 手动供应商自带的代理
+    proxy: Option<String>,
 }
 
 
@@ -376,6 +390,50 @@ fn gw_status_blocked(status: Option<&str>) -> bool {
     )
 }
 
+/// 三级代理解析：账号自带 → 平台覆盖 → 全局默认；空字符串表示强制直连
+fn resolve_proxy(
+    cfg: &GatewayConfig,
+    platform: &str,
+    account_proxy: Option<&str>,
+) -> Option<String> {
+    if let Some(p) = account_proxy {
+        let t = p.trim();
+        return if t.is_empty() { None } else { Some(t.to_string()) };
+    }
+    if let Some(v) = cfg.platform_proxies.get(platform) {
+        let t = v.trim();
+        return if t.is_empty() { None } else { Some(t.to_string()) };
+    }
+    cfg.proxy
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+/// 按 (proxy, timeout) 复用 reqwest Client，避免每个请求重建 TLS
+fn client_for(
+    st: &Arc<GatewayState>,
+    proxy: Option<&str>,
+    timeout_secs: u64,
+) -> Option<reqwest::Client> {
+    let key = format!("{}|{}", proxy.unwrap_or("-"), timeout_secs);
+    if let Some(c) = st.clients.lock().unwrap().get(&key) {
+        return Some(c.clone());
+    }
+    let mut b = reqwest::Client::builder().timeout(Duration::from_secs(timeout_secs));
+    if let Some(p) = proxy {
+        if !p.is_empty() {
+            if let Ok(px) = reqwest::Proxy::all(p) {
+                b = b.proxy(px);
+            }
+        }
+    }
+    let c = b.build().ok()?;
+    st.clients.lock().unwrap().insert(key, c.clone());
+    Some(c)
+}
+
 /// 从宿主各平台账号库读取可用账号
 ///
 /// 覆盖 Codex / Claude(API Key) / CodeBuddy / CodeBuddy CN / WorkBuddy。
@@ -437,6 +495,7 @@ fn load_pool() -> Vec<PoolAccount> {
             protocol: "openai".to_string(),
             quota_left: tq.0,
             exhausted: tq.1 || gw_status_blocked(a.status.as_deref()),
+            proxy: None,
         });
     }
 
@@ -456,6 +515,7 @@ fn load_pool() -> Vec<PoolAccount> {
             protocol: "openai".to_string(),
             quota_left: tq.0,
             exhausted: tq.1 || gw_status_blocked(a.status.as_deref()),
+            proxy: None,
         });
     }
 
@@ -475,6 +535,7 @@ fn load_pool() -> Vec<PoolAccount> {
             protocol: "openai".to_string(),
             quota_left: tq.0,
             exhausted: tq.1 || gw_status_blocked(a.status.as_deref()),
+            proxy: None,
         });
     }
 
@@ -498,6 +559,7 @@ fn load_pool() -> Vec<PoolAccount> {
             protocol: "openai".to_string(),
             quota_left: None,
             exhausted: false,
+            proxy: None,
         });
     }
 
@@ -516,6 +578,7 @@ fn load_pool() -> Vec<PoolAccount> {
             protocol: "openai".to_string(),
             quota_left: None,
             exhausted: false,
+            proxy: None,
         });
     }
 
@@ -534,6 +597,7 @@ fn load_pool() -> Vec<PoolAccount> {
             protocol: "openai".to_string(),
             quota_left: None,
             exhausted: false,
+            proxy: None,
         });
     }
 
@@ -552,6 +616,7 @@ fn load_pool() -> Vec<PoolAccount> {
             protocol: "openai".to_string(),
             quota_left: None,
             exhausted: false,
+            proxy: None,
         });
     }
 
@@ -570,6 +635,7 @@ fn load_pool() -> Vec<PoolAccount> {
             protocol: "openai".to_string(),
             quota_left: None,
             exhausted: false,
+            proxy: None,
         });
     }
 
@@ -588,6 +654,7 @@ fn load_pool() -> Vec<PoolAccount> {
             protocol: "openai".to_string(),
             quota_left: None,
             exhausted: false,
+            proxy: None,
         });
     }
 
@@ -606,6 +673,7 @@ fn load_pool() -> Vec<PoolAccount> {
             protocol: "anthropic".to_string(),
             quota_left: None,
             exhausted: false,
+            proxy: None,
         });
     }
 
@@ -628,6 +696,7 @@ fn merge_manual_providers(mut pool: Vec<PoolAccount>, providers: &[ManualProvide
             protocol: p.protocol.clone(),
             quota_left: None,
             exhausted: false,
+            proxy: p.proxy.clone(),
         });
     }
     pool
@@ -989,20 +1058,11 @@ async fn proxy_request(
             None => format!("{}{}", plat_base.trim_end_matches('/'), plat_path),
         };
 
-        let mut cbuild = reqwest::Client::builder()
-            .timeout(Duration::from_secs(cfg.timeout_secs));
-        if let Some(proxy) = cfg.proxy.as_deref() {
-            if !proxy.trim().is_empty() {
-                if let Ok(px) = reqwest::Proxy::all(proxy.trim()) {
-                    cbuild = cbuild.proxy(px);
-                }
-            }
-        }
-        let client = match cbuild.build()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                last_err = format!("client build: {e}");
+        let proxy = resolve_proxy(&cfg, &acc.platform, acc.proxy.as_deref());
+        let client = match client_for(&st, proxy.as_deref(), cfg.timeout_secs) {
+            Some(c) => c,
+            None => {
+                last_err = "client build failed".to_string();
                 continue;
             }
         };
@@ -1484,18 +1544,11 @@ async fn test_provider(State(st): State<Arc<GatewayState>>, Json(p): Json<Manual
     };
     let started = Instant::now();
     let st = &st;
-    let mut cbuild = reqwest::Client::builder().timeout(Duration::from_secs(15));
-    if let Some(proxy) = st.config.lock().unwrap().proxy.clone() {
-        if !proxy.trim().is_empty() {
-            if let Ok(px) = reqwest::Proxy::all(proxy.trim()) {
-                cbuild = cbuild.proxy(px);
-            }
-        }
-    }
-    let client = match cbuild.build()
-    {
-        Ok(c) => c,
-        Err(e) => return json_err(StatusCode::INTERNAL_SERVER_ERROR, &format!("client: {e}")),
+    let cfg_snapshot = st.config.lock().unwrap().clone();
+    let proxy = p.proxy.clone().or_else(|| cfg_snapshot.proxy.clone());
+    let client = match client_for(&st, proxy.as_deref(), 15) {
+        Some(c) => c,
+        None => return json_err(StatusCode::INTERNAL_SERVER_ERROR, "client build failed"),
     };
     let mut req = client.get(&url);
     if !p.api_key.trim().is_empty() {

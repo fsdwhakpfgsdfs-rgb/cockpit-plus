@@ -12,6 +12,7 @@ interface GatewayStatusResp {
   maxAttempts?: number;
   quotaCooldownSecs?: number;
   proxy?: string | null;
+  platformProxies?: Record<string, string>;
   keys: { id: string; name: string; enabled: boolean; keyMasked: string }[];
   pool: {
     total: number;
@@ -78,7 +79,7 @@ export default function GatewayPage() {
   const [port, setPort] = useState(8787);
 
   const [cfgOpen, setCfgOpen] = useState(false);
-  const [cfgForm, setCfgForm] = useState({ port: 8787, strategy: 'round_robin', timeoutSecs: 180, maxAttempts: 3, sessionAffinity: true, quotaCooldownSecs: 300, proxy: '' });
+  const [cfgForm, setCfgForm] = useState({ port: 8787, strategy: 'round_robin', timeoutSecs: 180, maxAttempts: 3, sessionAffinity: true, quotaCooldownSecs: 300, proxy: '', platformProxies: {} as Record<string, string> });
 
   const [keyOpen, setKeyOpen] = useState(false);
   const [keyName, setKeyName] = useState('');
@@ -200,6 +201,7 @@ export default function GatewayPage() {
           max_attempts: cfgForm.maxAttempts,
           quota_cooldown_secs: cfgForm.quotaCooldownSecs,
           proxy: cfgForm.proxy.trim() ? cfgForm.proxy.trim() : null,
+          platform_proxies: cfgForm.platformProxies,
         }),
       });
       const j = await r.json();
@@ -360,6 +362,7 @@ export default function GatewayPage() {
                   sessionAffinity: status.sessionAffinity,
                   quotaCooldownSecs: status.quotaCooldownSecs ?? 300,
                   proxy: status.proxy ?? '',
+                  platformProxies: status.platformProxies ?? {},
                 });
               }
               setCfgOpen(true);
@@ -648,6 +651,17 @@ export default function GatewayPage() {
               <span>出站代理（留空直连，例如 http://127.0.0.1:10808）</span>
               <input className="gw-input" value={cfgForm.proxy} onChange={(e) => setCfgForm({ ...cfgForm, proxy: e.target.value })} placeholder="http://127.0.0.1:10808" />
             </label>
+            <div className="gw-field">
+              <span>按平台覆盖代理（留空 = 直连；不填 = 沿用上面的默认代理）</span>
+              <div className="gw-platproxies">
+                <label key="codebuddy_cn" className="gw-platproxy-row"><code>codebuddy_cn</code><input className="gw-input" value={cfgForm.platformProxies["codebuddy_cn"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "codebuddy_cn": e.target.value } })} placeholder="http://127.0.0.1:10808" /></label>
+                <label key="workbuddy" className="gw-platproxy-row"><code>workbuddy</code><input className="gw-input" value={cfgForm.platformProxies["workbuddy"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "workbuddy": e.target.value } })} placeholder="http://127.0.0.1:10808" /></label>
+                <label key="codex" className="gw-platproxy-row"><code>codex</code><input className="gw-input" value={cfgForm.platformProxies["codex"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "codex": e.target.value } })} placeholder="http://127.0.0.1:10808" /></label>
+                <label key="claude" className="gw-platproxy-row"><code>claude</code><input className="gw-input" value={cfgForm.platformProxies["claude"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "claude": e.target.value } })} placeholder="http://127.0.0.1:10808" /></label>
+                <label key="grok" className="gw-platproxy-row"><code>grok</code><input className="gw-input" value={cfgForm.platformProxies["grok"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "grok": e.target.value } })} placeholder="http://127.0.0.1:10808" /></label>
+                <label key="github-copilot" className="gw-platproxy-row"><code>github-copilot</code><input className="gw-input" value={cfgForm.platformProxies["github-copilot"] ?? ''} onChange={(e) => setCfgForm({ ...cfgForm, platformProxies: { ...cfgForm.platformProxies, "github-copilot": e.target.value } })} placeholder="http://127.0.0.1:10808" /></label>
+              </div>
+            </div>
             <label className="gw-field">
               <span>额度耗尽冷却（秒）</span>
               <input className="gw-input" type="number" value={cfgForm.quotaCooldownSecs} onChange={(e) => setCfgForm({ ...cfgForm, quotaCooldownSecs: Number(e.target.value) || 300 })} />

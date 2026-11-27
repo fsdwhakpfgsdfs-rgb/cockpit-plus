@@ -319,3 +319,27 @@
 
 .gw-state-ok { color: #16a34a; }
 .gw-state-warn { color: #d97706; font-weight: 600; }
+
+/* 按平台代理覆盖 */
+.gw-platproxies {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.gw-platproxy-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.gw-platproxy-row code {
+  width: 132px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted, #6b7280);
+}
+.gw-platproxy-row .gw-input {
+  flex: 1;
+  min-width: 0;
+}
