@@ -79,6 +79,8 @@ for chunk in client.chat.completions.create(
   "timeout_secs": 180,
   "max_attempts": 3,
   "quota_cooldown_secs": 300,
+  "proxy": "http://127.0.0.1:10808",
+  "platform_proxies": { "codebuddy_cn": "", "workbuddy": "", "codex": "http://127.0.0.1:10808" },
   "providers": []
 }
 ```
@@ -91,7 +93,41 @@ for chunk in client.chat.completions.create(
 | `timeout_secs` | 单次上游请求超时 |
 | `max_attempts` | 故障转移最多尝试的账号数 |
 | `quota_cooldown_secs` | 额度类错误后的冷却时长 |
+| `proxy` | 默认出站代理；为空则直连 |
+| `platform_proxies` | 按平台覆盖代理，见 3.1 |
 | `providers` | 手动添加的 OpenAI 兼容端点（可选） |
+
+### 3.1 出站代理（三级覆盖）
+
+按优先级从高到低解析，**空字符串表示强制直连**：
+
+```
+1. 账号自带代理        手动供应商单独配置的 proxy
+2. 平台覆盖代理        platform_proxies["<platform>"]
+3. 全局默认代理        proxy
+4. 都没有              → 直连
+```
+
+```rust
+fn resolve_proxy(cfg, platform, account_proxy) -> Option<String> {
+    if let Some(p) = account_proxy { ... }                      // 账号自带
+    if let Some(v) = cfg.platform_proxies.get(platform) { ... }  // 平台覆盖
+    cfg.proxy.filter(|s| !s.trim().is_empty())                   // 全局
+}
+```
+
+| 场景 | 配置 |
+|---|---|
+| 全机必须走代理 | 只填 `proxy`，`platform_proxies` 留空 |
+| 国内平台直连、国外走代理 | 给国内平台填 `""`，其余沿用 `proxy` |
+| 不同平台用不同代理 | 各自填不同地址 |
+| 某平台要走固定出口 IP | 单独填该出口 |
+
+**客户端缓存**：`GatewayState.clients: Mutex<HashMap<String, reqwest::Client>>`，
+按 `"<proxy>|<timeout>"` 复用，避免每个请求重建 TLS。
+
+> 注意：如果整机直连不通（国内域名也连不上），不要给国内平台填空 —— 
+> v2rayN 之类的代理本身按规则分流，你在网关层再强制直连只会把请求打回死路。
 
 ---
 
@@ -172,7 +208,39 @@ for chunk in client.chat.completions.create(
 **接不了**：Grok（`GrokAccountView` 的 token 是占位符，源码注明 real credentials never cross IPC）、
 Qoder / Zed（结构体无 token 字段）、Cursor / Trae（无 `list_accounts` 导出）。
 
-### 腾讯系的两个关键细节
+### 6.1 模型目录
+
+`/v1/models` **按号池里实际存在的平台动态返回**，不再硬编码。
+
+腾讯系（CodeBuddy / CodeBuddy CN / WorkBuddy）账号可调 **36 个模型**：
+
+**国内池（19）**
+
+```
+auto            glm-5.4         glm-5.3          glm-5.3-flash
+glm-5.2         kimi-k3-1       kimi-k2.8-preview kimi-k3.1-pro
+deepseek-v4.1-flash             deepseek-v4-pro   space-bunny
+step-5-preview  mimo-v2.6-pro   minimax-m3.1-flash
+hy4std          hy4flash-free   hy4flash
+hunyuan-image-alpha             hunyuan-image-alpha-edit
+```
+
+**国际池（17）**
+
+```
+max-model       deepseek-v4.1-flash-sg
+gpt-6.2-astra   gpt-6-astra     gpt-6.2-sol      gpt-6.1-sol
+gpt-6-sol       gpt-6.1-terra   gpt-6-luna
+gpt-5.6-sol     gpt-5.6-terra   gpt-5.6-luna
+grok-4.7        gemini-3.8-flash
+kimi-k3.1-pro-highspeed         kimi-k3     hy-image-3.5
+```
+
+号池里加了 Codex 账号会追加 `gpt-5` / `gpt-5-codex` / `o3` / `o4-mini`，
+加了 Claude 账号会追加 `claude-opus-4` / `claude-sonnet-4` / `claude-haiku-4`。
+
+
+### 6.2 腾讯系的两个关键细节
 
 1. **私有请求头**
    ```
@@ -251,6 +319,9 @@ npx vite build        # 前端打包
 保存供应商后网关卡死无响应 | `save()` 内部会再 `lock` 一次 config，必须先把锁作用域收紧 |
 页面上按钮点了没反应 | 项目**没有启用 Tailwind**（无 `@tailwind` 指令 / 无配置），工具类全是死代码，只能用纯 CSS |
 腾讯上游返回 `11101` | 接口只收流式，见 6.2 |
+| 全部 502 `error sending request for url (...)` | 出站网络不通。先用 `curl -m 10 -o NUL -w "%{http_code}" https://www.baidu.com` 和 `curl -x http://127.0.0.1:10808 ...` 对比；若直连为 `000`、走代理正常，说明整机必须走代理，给 `proxy` 填代理地址 |
+| 系统代理开关指向一个已失效的端口 | v2rayN/xray 挂了但 WinINET 代理仍开着，应用会撞死在死代理上。检查 `Get-Process v2rayN,xray` 与 `Get-NetTCPConnection -LocalPort 10808` |
+| `/v1/models` 返回一堆用不了的模型 | 旧版硬编码。新版按号池平台动态生成 |
 号池全是「额度未知」 | `quota_raw` 为空，去对应平台页点「刷新全部」 |
 `least_used` 专挑额度最低的号 | 排序键写反了，应为 `(-quota, used)` |
 
