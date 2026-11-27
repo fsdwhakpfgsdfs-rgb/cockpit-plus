@@ -81,6 +81,7 @@ for chunk in client.chat.completions.create(
   "quota_cooldown_secs": 300,
   "proxy": "http://127.0.0.1:10808",
   "platform_proxies": { "codebuddy_cn": "", "workbuddy": "", "codex": "http://127.0.0.1:10808" },
+  "account_proxies": { "codex_account_abc123": "socks5://127.0.0.1:10809" },
   "providers": []
 }
 ```
@@ -95,6 +96,7 @@ for chunk in client.chat.completions.create(
 | `quota_cooldown_secs` | 额度类错误后的冷却时长 |
 | `proxy` | 默认出站代理；为空则直连 |
 | `platform_proxies` | 按平台覆盖代理，见 3.1 |
+| `account_proxies` | 按账号覆盖代理（键为号池账号 id），优先级最高，见 3.1 |
 | `providers` | 手动添加的 OpenAI 兼容端点（可选） |
 
 ### 3.1 出站代理（三级覆盖）
@@ -103,10 +105,15 @@ for chunk in client.chat.completions.create(
 
 ```
 1. 账号自带代理        手动供应商单独配置的 proxy
-2. 平台覆盖代理        platform_proxies["<platform>"]
-3. 全局默认代理        proxy
-4. 都没有              → 直连
+2. 账号覆盖代理        account_proxies["<account_id>"]
+3. 平台覆盖代理        platform_proxies["<platform>"]
+4. 全局默认代理        proxy
+5. 都没有              → 直连（显式 .no_proxy()）
 ```
+
+> **直连必须显式关闭环境变量代理**：reqwest 默认会读 `HTTP_PROXY` / `HTTPS_PROXY`，
+> 所以「不设代理」并不等于直连。`client_for` 在解析结果为 `None` 时会调用
+> `.no_proxy()`，否则强制直连的平台上会静默走环境变量里的代理。
 
 ```rust
 fn resolve_proxy(cfg, platform, account_proxy) -> Option<String> {
@@ -122,6 +129,7 @@ fn resolve_proxy(cfg, platform, account_proxy) -> Option<String> {
 | 国内平台直连、国外走代理 | 给国内平台填 `""`，其余沿用 `proxy` |
 | 不同平台用不同代理 | 各自填不同地址 |
 | 某平台要走固定出口 IP | 单独填该出口 |
+| 同平台里个别账号要走不同出口 | `account_proxies["<account_id>"]` |
 
 **客户端缓存**：`GatewayState.clients: Mutex<HashMap<String, reqwest::Client>>`，
 按 `"<proxy>|<timeout>"` 复用，避免每个请求重建 TLS。

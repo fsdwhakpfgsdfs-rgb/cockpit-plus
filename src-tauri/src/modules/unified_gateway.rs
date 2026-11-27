@@ -54,6 +54,10 @@ pub struct GatewayConfig {
     /// 值为空字符串表示该平台强制直连；未出现的平台沿用 proxy。
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub platform_proxies: std::collections::HashMap<String, String>,
+    /// 按账号覆盖代理，优先级最高。键为号池账号 id
+    /// （平台账号用账号库里的 id，手动供应商标记为 manual:<provider_id>）
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub account_proxies: std::collections::HashMap<String, String>,
     /// 额度耗尽后的冷却秒数（期间不再被选中）
     #[serde(default = "def_cooldown")]
     pub quota_cooldown_secs: u64,
@@ -129,6 +133,7 @@ impl Default for GatewayConfig {
             providers: Vec::new(),
             proxy: None,
             platform_proxies: std::collections::HashMap::new(),
+            account_proxies: std::collections::HashMap::new(),
             quota_cooldown_secs: def_cooldown(),
         }
     }
@@ -391,12 +396,17 @@ fn gw_status_blocked(status: Option<&str>) -> bool {
 
 /// 三级代理解析：账号自带 → 平台覆盖 → 全局默认；空字符串表示强制直连
 fn resolve_proxy(
+    account_id: &str,
     cfg: &GatewayConfig,
     platform: &str,
     account_proxy: Option<&str>,
 ) -> Option<String> {
     if let Some(p) = account_proxy {
         let t = p.trim();
+        return if t.is_empty() { None } else { Some(t.to_string()) };
+    }
+    if let Some(v) = cfg.account_proxies.get(account_id) {
+        let t = v.trim();
         return if t.is_empty() { None } else { Some(t.to_string()) };
     }
     if let Some(v) = cfg.platform_proxies.get(platform) {
@@ -421,11 +431,15 @@ fn client_for(
         return Some(c.clone());
     }
     let mut b = reqwest::Client::builder().timeout(Duration::from_secs(timeout_secs));
-    if let Some(p) = proxy {
-        if !p.is_empty() {
+    match proxy {
+        Some(p) if !p.is_empty() => {
             if let Ok(px) = reqwest::Proxy::all(p) {
                 b = b.proxy(px);
             }
+        }
+        // 显式直连：必须关掉 reqwest 对环境变量 HTTP(S)_PROXY 的自动读取
+        _ => {
+            b = b.no_proxy();
         }
     }
     let c = b.build().ok()?;
@@ -1058,7 +1072,7 @@ async fn proxy_request(
             None => format!("{}{}", plat_base.trim_end_matches('/'), plat_path),
         };
 
-        let proxy = resolve_proxy(&cfg, &acc.platform, acc.proxy.as_deref());
+        let proxy = resolve_proxy(&cfg, &acc.id, &acc.platform, acc.proxy.as_deref());
         let client = match client_for(&st, proxy.as_deref(), cfg.timeout_secs) {
             Some(c) => c,
             None => {
