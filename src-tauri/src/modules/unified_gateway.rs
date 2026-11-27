@@ -286,7 +286,6 @@ struct PoolAccount {
     quota_left: Option<i32>,
     /// 账号被封禁 / 额度彻底耗尽
     exhausted: bool,
-    proxy: None,
     /// 手动供应商自带的代理
     proxy: Option<String>,
 }
@@ -475,6 +474,7 @@ fn load_pool() -> Vec<PoolAccount> {
                 protocol: "openai".to_string(),
                 quota_left,
                 exhausted,
+                proxy: None,
             });
         }
     }
@@ -1543,7 +1543,6 @@ async fn test_provider(State(st): State<Arc<GatewayState>>, Json(p): Json<Manual
         format!("{base}/v1/models")
     };
     let started = Instant::now();
-    let st = &st;
     let cfg_snapshot = st.config.lock().unwrap().clone();
     let proxy = p.proxy.clone().or_else(|| cfg_snapshot.proxy.clone());
     let client = match client_for(&st, proxy.as_deref(), 15) {
