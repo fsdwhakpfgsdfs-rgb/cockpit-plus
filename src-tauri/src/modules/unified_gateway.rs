@@ -273,6 +273,105 @@ struct PoolAccount {
     exhausted: bool,
 }
 
+
+/// 解析腾讯系（WorkBuddy / CodeBuddy）缓存里的额度
+/// 返回 (剩余百分比, 是否已耗尽)
+fn tencent_quota_metrics(
+    quota_raw: Option<&Value>,
+    usage_raw: Option<&Value>,
+) -> (Option<i32>, bool) {
+    for root in [quota_raw, usage_raw].into_iter().flatten() {
+        let user_resource = root.get("userResource").unwrap_or(root);
+        let mut candidates: Vec<&Value> = vec![user_resource];
+        if let Some(d) = user_resource.get("data") {
+            candidates.push(d);
+        }
+        if let Some(dd) = user_resource.get("data").and_then(|d| d.get("data")) {
+            candidates.push(dd);
+        }
+        if let Some(d) = root.get("data") {
+            candidates.push(d);
+        }
+
+        for c in candidates {
+            let response = c.get("Response").or_else(|| c.get("response"));
+            let payload = response.and_then(|r| r.get("Data").or_else(|| r.get("data")));
+
+            let mut items: Vec<&Value> = Vec::new();
+            if let Some(arr) = payload
+                .and_then(|p| p.get("Accounts").or_else(|| p.get("accounts")))
+                .and_then(|v| v.as_array())
+            {
+                items.extend(arr.iter());
+            }
+            if let Some(arr) = c.get("resources").and_then(|v| v.as_array()) {
+                items.extend(arr.iter());
+            }
+            if items.is_empty() {
+                continue;
+            }
+
+            let mut total = 0.0f64;
+            let mut remain = 0.0f64;
+            let mut unlimited = false;
+            for it in &items {
+                if it.get("Unlimited").and_then(|v| v.as_bool()) == Some(true) {
+                    unlimited = true;
+                }
+                let is_daily = gw_num(it.get("CapacityType")) == Some(4.0);
+                let slice = if is_daily {
+                    it.get("SlicePeriodUsageDetails")
+                        .and_then(|v| v.as_array())
+                        .and_then(|a| a.first())
+                } else {
+                    None
+                };
+                let t = slice
+                    .and_then(|s| gw_num(s.get("SlicePeriodCapacitySizePrecise")))
+                    .or_else(|| gw_num(it.get("CycleCapacitySizePrecise")))
+                    .or_else(|| gw_num(it.get("CycleCapacitySize")))
+                    .or_else(|| gw_num(it.get("CapacitySizePrecise")))
+                    .or_else(|| gw_num(it.get("CapacitySize")))
+                    .unwrap_or(0.0);
+                let r = slice
+                    .and_then(|s| gw_num(s.get("SlicePeriodCapacityRemainPrecise")))
+                    .or_else(|| gw_num(it.get("CycleCapacityRemainPrecise")))
+                    .or_else(|| gw_num(it.get("CycleCapacityRemain")))
+                    .or_else(|| gw_num(it.get("CapacityRemainPrecise")))
+                    .or_else(|| gw_num(it.get("CapacityRemain")))
+                    .unwrap_or(0.0);
+                total += t;
+                remain += r;
+            }
+            if unlimited {
+                return (Some(100), false);
+            }
+            if total > 0.0 {
+                let pct = ((remain / total) * 100.0).clamp(0.0, 100.0);
+                return (Some(pct.round() as i32), remain <= 0.0);
+            }
+        }
+    }
+    (None, false)
+}
+
+/// JSON 数值容错（数字或字符串）
+fn gw_num(v: Option<&Value>) -> Option<f64> {
+    match v? {
+        Value::Number(n) => n.as_f64(),
+        Value::String(s) => s.trim().parse::<f64>().ok(),
+        _ => None,
+    }
+}
+
+/// 账号状态是否表示不可用
+fn gw_status_blocked(status: Option<&str>) -> bool {
+    matches!(
+        status.unwrap_or("").to_ascii_lowercase().as_str(),
+        "banned" | "forbidden" | "disabled" | "invalid" | "expired" | "suspended"
+    )
+}
+
 /// 从宿主各平台账号库读取可用账号
 ///
 /// 覆盖 Codex / Claude(API Key) / CodeBuddy / CodeBuddy CN / WorkBuddy。
@@ -323,6 +422,7 @@ fn load_pool() -> Vec<PoolAccount> {
         if a.access_token.trim().is_empty() {
             continue;
         }
+        let tq = tencent_quota_metrics(a.quota_raw.as_ref(), a.usage_raw.as_ref());
         out.push(PoolAccount {
             id: a.id.clone(),
             name: a.email.clone(),
@@ -331,8 +431,8 @@ fn load_pool() -> Vec<PoolAccount> {
             platform: "codebuddy".to_string(),
             base_url: None,
             protocol: "openai".to_string(),
-            quota_left: None,
-            exhausted: false,
+            quota_left: tq.0,
+            exhausted: tq.1 || gw_status_blocked(a.status.as_deref()),
         });
     }
 
@@ -341,6 +441,7 @@ fn load_pool() -> Vec<PoolAccount> {
         if a.access_token.trim().is_empty() {
             continue;
         }
+        let tq = tencent_quota_metrics(a.quota_raw.as_ref(), a.usage_raw.as_ref());
         out.push(PoolAccount {
             id: a.id.clone(),
             name: a.email.clone(),
@@ -349,8 +450,8 @@ fn load_pool() -> Vec<PoolAccount> {
             platform: "codebuddy_cn".to_string(),
             base_url: None,
             protocol: "openai".to_string(),
-            quota_left: None,
-            exhausted: false,
+            quota_left: tq.0,
+            exhausted: tq.1 || gw_status_blocked(a.status.as_deref()),
         });
     }
 
@@ -359,6 +460,7 @@ fn load_pool() -> Vec<PoolAccount> {
         if a.access_token.trim().is_empty() {
             continue;
         }
+        let tq = tencent_quota_metrics(a.quota_raw.as_ref(), a.usage_raw.as_ref());
         out.push(PoolAccount {
             id: a.id.clone(),
             name: a.email.clone(),
@@ -367,8 +469,8 @@ fn load_pool() -> Vec<PoolAccount> {
             platform: "workbuddy".to_string(),
             base_url: None,
             protocol: "openai".to_string(),
-            quota_left: None,
-            exhausted: false,
+            quota_left: tq.0,
+            exhausted: tq.1 || gw_status_blocked(a.status.as_deref()),
         });
     }
 
